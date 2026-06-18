@@ -1,0 +1,46 @@
+{
+  "name": "@xdc-intent/frontend",
+  "version": "1.0.0",
+  "description": "XDC Intent Framework Frontend — Consumer-grade trading interface",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "lint": "eslint src/**/*.ts src/**/*.tsx"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.21.0",
+    "ethers": "^6.10.0",
+    "@xdc-intent/sdk": "workspace:*",
+    "@xdc-intent/types": "workspace:*",
+    "@xdc-intent/constants": "workspace:*",
+    "zustand": "^4.4.7",
+    "react-query": "^3.39.3",
+    "axios": "^1.6.0",
+    "recharts": "^2.10.0",
+    "react-hot-toast": "^2.4.1",
+    "lucide-react": "^0.294.0",
+    "clsx": "^2.0.0",
+    "tailwind-merge": "^2.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.8",
+    "tailwindcss": "^3.4.0",
+    "postcss": "^8.4.32",
+    "autoprefixer": "^10.4.16",
+    "vitest": "^1.2.0",
+    "@playwright/test": "^1.40.0",
+    "eslint": "^8.56.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0"
+  }
+}

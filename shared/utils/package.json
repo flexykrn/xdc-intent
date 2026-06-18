@@ -1,0 +1,14 @@
+{
+  "name": "@xdc-intent/utils",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@xdc-intent/constants": "workspace:*",
+    "@xdc-intent/types": "workspace:*"
+  }
+}

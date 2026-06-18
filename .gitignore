@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+coverage/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Hardhat
+artifacts/
+cache/
+typechain-types/
+
+# Foundry
+out/
+cache_forge/
+
+# Database
+*.db
+*.db-journal
+
+# Temporary
+tmp/
+temp/

@@ -1,0 +1,27 @@
+{
+  "name": "@xdc-intent/solver",
+  "version": "1.0.0",
+  "description": "XDC Intent Solver — Competitive solver engine for intent fulfillment",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ethers": "^6.10.0",
+    "winston": "^3.11.0",
+    "sqlite3": "^5.1.6",
+    "zod": "^3.22.4",
+    "axios": "^1.6.0",
+    "@xdc-intent/sdk": "workspace:*",
+    "@xdc-intent/types": "workspace:*",
+    "@xdc-intent/constants": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.0",
+    "ts-node": "^10.9.2"
+  }
+}
