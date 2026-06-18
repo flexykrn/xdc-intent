@@ -130,6 +130,9 @@ describe("Escrow", function () {
       const tokenAddress = await mockToken.getAddress();
       const escrowAddress = await escrow.getAddress();
 
+      // Transfer tokens to escrow first (simulating IntentRegistry behavior)
+      await mockToken.connect(user).transfer(escrowAddress, LOCK_AMOUNT);
+
       await escrow.connect(registry).lockTokens(tokenAddress, user.address, LOCK_AMOUNT, intentId);
 
       expect(await escrow.getBalance(tokenAddress, user.address, intentId)).to.equal(LOCK_AMOUNT);
@@ -139,6 +142,10 @@ describe("Escrow", function () {
 
     it("Should emit TokensLocked event", async function () {
       const tokenAddress = await mockToken.getAddress();
+      const escrowAddress = await escrow.getAddress();
+
+      // Transfer tokens to escrow first
+      await mockToken.connect(user).transfer(escrowAddress, LOCK_AMOUNT);
 
       await expect(
         escrow.connect(registry).lockTokens(tokenAddress, user.address, LOCK_AMOUNT, intentId)
@@ -198,6 +205,9 @@ describe("Escrow", function () {
     const intentId = ethers.keccak256(ethers.toUtf8Bytes("release-intent"));
 
     beforeEach(async function () {
+      // Transfer tokens to escrow first
+      await mockToken.connect(user).transfer(await escrow.getAddress(), LOCK_AMOUNT);
+      
       await escrow.connect(registry).lockTokens(
         await mockToken.getAddress(),
         user.address,
@@ -271,6 +281,9 @@ describe("Escrow", function () {
     const intentId = ethers.keccak256(ethers.toUtf8Bytes("refund-intent"));
 
     beforeEach(async function () {
+      // Transfer tokens to escrow first
+      await mockToken.connect(user).transfer(await escrow.getAddress(), LOCK_AMOUNT);
+      
       await escrow.connect(registry).lockTokens(
         await mockToken.getAddress(),
         user.address,
@@ -438,6 +451,9 @@ describe("Escrow", function () {
     const intentId = ethers.keccak256(ethers.toUtf8Bytes("emergency-intent"));
 
     beforeEach(async function () {
+      // Transfer tokens to escrow first
+      await mockToken.connect(user).transfer(await escrow.getAddress(), LOCK_AMOUNT);
+      
       await escrow.connect(registry).lockTokens(
         await mockToken.getAddress(),
         user.address,

@@ -148,8 +148,9 @@ contract Escrow is ReentrancyGuard, Ownable, Pausable {
         require(intentId != bytes32(0), "Escrow: zero intentId");
         require(balances[token][user][intentId] == 0, "Escrow: intent already exists");
         
-        // Transfer tokens from user to escrow
-        IERC20(token).safeTransferFrom(user, address(this), amount);
+        // Tokens are transferred by IntentRegistry before calling lockTokens
+        // Just record the balance
+        // uint256 balanceBefore = IERC20(token).balanceOf(address(this));
         
         // Update balances
         balances[token][user][intentId] = amount;

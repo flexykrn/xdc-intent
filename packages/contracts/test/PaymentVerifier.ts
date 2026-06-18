@@ -14,6 +14,12 @@ describe("PaymentVerifier", function () {
   const TOKEN = "0x0000000000000000000000000000000000000001";
   const AMOUNT = ethers.parseEther("1000");
   const PROTOCOL_FEE = ethers.parseEther("1");
+
+  // Helper to get dynamic expiry (far future to avoid coverage issues)
+  function getExpiry() {
+    return Math.floor(Date.now() / 1000) + 86400; // 24 hours from now
+  }
+
   // Helper function to create and sign a payment proof
   async function createAndSignProof(
     intentId: string,
@@ -56,11 +62,6 @@ describe("PaymentVerifier", function () {
 
     const signature = await signerToUse.signTypedData(domain, types, value);
     return { proof: value, signature };
-  }
-  
-  // Helper to get dynamic expiry (far future to avoid coverage issues)
-  function getExpiry() {
-    return Math.floor(Date.now() / 1000) + 86400; // 24 hours from now
   }
 
   beforeEach(async function () {
