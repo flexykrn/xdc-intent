@@ -19,8 +19,8 @@
     "sqlite3": "^5.1.6",
     "winston": "^3.11.0",
     "express-rate-limit": "^7.1.5",
-    "@xdc-intent/types": "workspace:*",
-    "@xdc-intent/constants": "workspace:*"
+    "@xdc-intent/types": "file:../../shared/types",
+    "@xdc-intent/constants": "file:../../shared/constants"
   },
   "devDependencies": {
     "typescript": "^5.3.3",

@@ -15,9 +15,9 @@
     "sqlite3": "^5.1.6",
     "zod": "^3.22.4",
     "axios": "^1.6.0",
-    "@xdc-intent/sdk": "workspace:*",
-    "@xdc-intent/types": "workspace:*",
-    "@xdc-intent/constants": "workspace:*"
+    "@xdc-intent/sdk": "file:../../packages/sdk",
+    "@xdc-intent/types": "file:../../shared/types",
+    "@xdc-intent/constants": "file:../../shared/constants"
   },
   "devDependencies": {
     "typescript": "^5.3.3",

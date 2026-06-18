@@ -31,6 +31,9 @@ contract Escrow is ReentrancyGuard, Ownable, Pausable {
     /// @notice Per-intent balance tracking: token => user => intentId => amount
     mapping(address => mapping(address => mapping(bytes32 => uint256))) public balances;
     
+    /// @notice Mapping from intentId to original user who locked
+    mapping(bytes32 => address) public intentToUser;
+    
     /// @notice Supported token allowlist
     mapping(address => bool) public supportedTokens;
     
@@ -119,7 +122,7 @@ contract Escrow is ReentrancyGuard, Ownable, Pausable {
         address _treasury,
         uint256 _protocolFeeBps,
         address _emergencyRecipient
-    ) Ownable(msg.sender) nonZeroAddress(_treasury) nonZeroAddress(_emergencyRecipient) {
+    ) Ownable() nonZeroAddress(_treasury) nonZeroAddress(_emergencyRecipient) {
         require(_protocolFeeBps <= 1000, "Escrow: fee too high"); // Max 10%
         treasury = _treasury;
         protocolFeeBps = _protocolFeeBps;
@@ -152,6 +155,9 @@ contract Escrow is ReentrancyGuard, Ownable, Pausable {
         balances[token][user][intentId] = amount;
         totalTokenBalance[token] += amount;
         
+        // Track intent owner
+        intentToUser[intentId] = user;
+        
         emit TokensLocked(token, user, intentId, amount);
     }
     
@@ -169,14 +175,21 @@ contract Escrow is ReentrancyGuard, Ownable, Pausable {
         bytes32 intentId
     ) external onlyRegistry nonReentrant whenNotPaused validToken(token) nonZeroAddress(recipient) {
         require(amount > 0, "Escrow: zero amount");
-        require(balances[token][recipient][intentId] >= amount, "Escrow: insufficient balance");
+        
+        require(intentToUser[intentId] != address(0), "Escrow: intent not found");
+        address originalUser = intentToUser[intentId];
+        
+        require(balances[token][originalUser][intentId] >= amount, "Escrow: insufficient balance");
         
         uint256 protocolFee = (amount * protocolFeeBps) / 10000;
         uint256 solverAmount = amount - protocolFee;
         
         // Update balances before external calls (checks-effects-interactions)
-        balances[token][recipient][intentId] -= amount;
+        balances[token][originalUser][intentId] -= amount;
         totalTokenBalance[token] -= amount;
+        
+        // Clear intent tracking
+        delete intentToUser[intentId];
         
         // Transfer protocol fee to treasury
         if (protocolFee > 0) {
@@ -208,6 +221,9 @@ contract Escrow is ReentrancyGuard, Ownable, Pausable {
         // Update balances before external calls
         balances[token][user][intentId] -= amount;
         totalTokenBalance[token] -= amount;
+        
+        // Clear intent tracking
+        delete intentToUser[intentId];
         
         // Transfer tokens back to user
         IERC20(token).safeTransfer(user, amount);
@@ -275,7 +291,7 @@ contract Escrow is ReentrancyGuard, Ownable, Pausable {
         address token,
         uint256 amount
     ) external onlyOwner {
-        require(pendingEmergencyWithdrawal.executed == false, "Escrow: pending withdrawal exists");
+        require(pendingEmergencyWithdrawal.token == address(0), "Escrow: pending withdrawal exists");
         require(amount <= totalTokenBalance[token], "Escrow: insufficient balance");
         
         pendingEmergencyWithdrawal = PendingEmergencyWithdrawal({

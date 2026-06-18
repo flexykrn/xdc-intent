@@ -31,7 +31,7 @@ const config: HardhatUserConfig = {
     apothem: {
       chainId: 51,
       url: process.env.XDC_TESTNET_RPC || 'https://erpc.apothem.network',
-      accounts: process.env.DEPLOYER_PRIVATE_KEY
+      accounts: process.env.DEPLOYER_PRIVATE_KEY && process.env.DEPLOYER_PRIVATE_KEY !== '0x...'
         ? [process.env.DEPLOYER_PRIVATE_KEY]
         : [],
       gasPrice: parseInt(process.env.GAS_PRICE_GWEI || '25') * 1e9,
@@ -39,7 +39,7 @@ const config: HardhatUserConfig = {
     xdc: {
       chainId: 50,
       url: process.env.XDC_MAINNET_RPC || 'https://erpc.xinfin.network',
-      accounts: process.env.DEPLOYER_PRIVATE_KEY
+      accounts: process.env.DEPLOYER_PRIVATE_KEY && process.env.DEPLOYER_PRIVATE_KEY !== '0x...'
         ? [process.env.DEPLOYER_PRIVATE_KEY]
         : [],
       gasPrice: parseInt(process.env.GAS_PRICE_GWEI || '25') * 1e9,

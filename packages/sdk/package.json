@@ -16,9 +16,9 @@
   "dependencies": {
     "ethers": "^6.10.0",
     "zod": "^3.22.4",
-    "@xdc-intent/types": "workspace:*",
-    "@xdc-intent/constants": "workspace:*",
-    "@xdc-intent/utils": "workspace:*"
+    "@xdc-intent/types": "file:../../shared/types",
+    "@xdc-intent/constants": "file:../../shared/constants",
+    "@xdc-intent/utils": "file:../../shared/utils"
   },
   "devDependencies": {
     "typescript": "^5.3.3",

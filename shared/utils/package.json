@@ -8,7 +8,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@xdc-intent/constants": "workspace:*",
-    "@xdc-intent/types": "workspace:*"
+    "@xdc-intent/constants": "file:../../shared/constants",
+    "@xdc-intent/types": "file:../../shared/types"
   }
 }
