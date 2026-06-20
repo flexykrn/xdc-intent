@@ -48,24 +48,24 @@ const config: HardhatUserConfig = {
   },
   etherscan: {
     apiKey: {
-      apothem: process.env.XDC_API_KEY || '',
-      xdc: process.env.XDC_API_KEY || '',
+      xdc: process.env.ETHERSCAN_API_KEY || '',
+      apothem: process.env.ETHERSCAN_API_KEY || '',
     },
     customChains: [
-      {
-        network: 'apothem',
-        chainId: 51,
-        urls: {
-          apiURL: 'https://explorer.apothem.network/api',
-          browserURL: 'https://explorer.apothem.network',
-        },
-      },
       {
         network: 'xdc',
         chainId: 50,
         urls: {
-          apiURL: 'https://explorer.xinfin.network/api',
-          browserURL: 'https://explorer.xinfin.network',
+          apiURL: 'https://api.xdcscan.io/api',
+          browserURL: 'https://xdcscan.io',
+        },
+      },
+      {
+        network: 'apothem',
+        chainId: 51,
+        urls: {
+          apiURL: 'https://api-testnet.xdcscan.com/api',
+          browserURL: 'https://testnet.xdcscan.com',
         },
       },
     ],

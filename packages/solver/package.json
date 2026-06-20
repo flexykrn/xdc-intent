@@ -1,27 +1,33 @@
 {
   "name": "@xdc-intent/solver",
   "version": "1.0.0",
-  "description": "XDC Intent Solver — Competitive solver engine for intent fulfillment",
+  "description": "XDC Intent Framework Solver - Competitive Intent Fulfillment",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/**/*.ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
   },
   "dependencies": {
     "ethers": "^6.10.0",
     "winston": "^3.11.0",
-    "sqlite3": "^5.1.6",
     "zod": "^3.22.4",
-    "axios": "^1.6.0",
-    "@xdc-intent/sdk": "file:../../packages/sdk",
-    "@xdc-intent/types": "file:../../shared/types",
-    "@xdc-intent/constants": "file:../../shared/constants"
+    "better-sqlite3": "^9.4.0",
+    "dotenv": "^16.3.1"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
+    "@types/node": "^20.10.0",
     "vitest": "^1.2.0",
-    "ts-node": "^10.9.2"
-  }
+    "ts-node": "^10.9.2",
+    "@types/better-sqlite3": "^7.6.8"
+  },
+  "keywords": ["xdc", "intent", "solver", "market-maker", "trading"],
+  "license": "MIT"
 }
