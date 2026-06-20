@@ -101,15 +101,17 @@ export class StateManager {
   }
 
   getPendingIntents(): PendingIntent[] {
-    return this.db.prepare(`
+    const rows = this.db.prepare(`
       SELECT * FROM pending_intents WHERE status = 'pending' ORDER BY created_at ASC
-    `).all() as PendingIntent[];
+    `).all() as any[];
+    return rows.map(row => this.mapPendingIntent(row));
   }
 
   getInFlightIntents(): PendingIntent[] {
-    return this.db.prepare(`
+    const rows = this.db.prepare(`
       SELECT * FROM pending_intents WHERE status = 'in-flight' ORDER BY created_at ASC
-    `).all() as PendingIntent[];
+    `).all() as any[];
+    return rows.map(row => this.mapPendingIntent(row));
   }
 
   logDecision(decision: DecisionLog): void {
@@ -126,9 +128,34 @@ export class StateManager {
   }
 
   getDecisionLogs(intentId: string): DecisionLog[] {
-    return this.db.prepare(`
+    const rows = this.db.prepare(`
       SELECT * FROM decision_logs WHERE intent_id = ? ORDER BY timestamp DESC
-    `).all(intentId) as DecisionLog[];
+    `).all(intentId) as any[];
+    return rows.map(row => this.mapDecisionLog(row));
+  }
+
+  private mapPendingIntent(row: any): PendingIntent {
+    return {
+      intentId: row.intent_id,
+      user: row.user,
+      token: row.token,
+      amount: row.amount,
+      expiry: row.expiry,
+      blockNumber: row.block_number,
+      transactionHash: row.transaction_hash,
+      status: row.status,
+      createdAt: row.created_at,
+    };
+  }
+
+  private mapDecisionLog(row: any): DecisionLog {
+    return {
+      timestamp: row.timestamp,
+      intentId: row.intent_id,
+      decision: row.decision,
+      reason: row.reason,
+      metadata: row.metadata,
+    };
   }
 
   getLastProcessedBlock(): number {

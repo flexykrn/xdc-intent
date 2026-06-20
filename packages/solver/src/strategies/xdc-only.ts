@@ -10,6 +10,11 @@ export interface FulfillmentPlan {
   swapRoute: SwapQuote;
   estimatedProfit: number;
   gasEstimate: bigint;
+  partialFill?: {
+    originalAmount: bigint;
+    fillAmount: bigint;
+    fillPercentage: number;
+  };
 }
 
 export class XDCOnlyStrategy {
@@ -19,17 +24,19 @@ export class XDCOnlyStrategy {
     private dexAdapter: DEXAdapter
   ) {}
 
-  async evaluate(intent: IntentEvent): Promise<FulfillmentPlan | null> {
+  async evaluate(intent: IntentEvent, partialFillAmount?: bigint): Promise<FulfillmentPlan | null> {
     try {
+      const amountToFill = partialFillAmount || intent.amount;
+      
       // Get quote from DEX
       const quote = await this.dexAdapter.getQuote(
         intent.token,
         intent.token, // Same token for XDC-only (no actual swap needed in v1)
-        intent.amount
+        amountToFill
       );
 
       // Calculate estimated profit
-      const estimatedProfit = this.calculateProfit(intent.amount, quote.outputAmount);
+      const estimatedProfit = this.calculateProfit(amountToFill, quote.outputAmount);
       
       // Check if profitable
       if (estimatedProfit < this.config.minProfitMargin) {
@@ -42,23 +49,59 @@ export class XDCOnlyStrategy {
       const gasCost = await this.estimateGasCost(totalGas);
       
       // Check if gas cost is acceptable
-      const gasCostPercentage = Number(gasCost) / Number(intent.amount) * 100;
+      const gasCostPercentage = Number(gasCost) / Number(amountToFill) * 100;
       if (gasCostPercentage > this.config.maxSlippage) {
         this.logger.info(`Intent ${intent.intentId} gas too high: ${gasCostPercentage.toFixed(2)}%`);
         return null;
       }
 
-      return {
+      const plan: FulfillmentPlan = {
         intentId: intent.intentId,
         destinationAmount: quote.outputAmount,
         swapRoute: quote,
         estimatedProfit,
         gasEstimate: totalGas,
       };
+
+      // Add partial fill info if applicable
+      if (partialFillAmount && partialFillAmount < intent.amount) {
+        const fillPercentage = Number(partialFillAmount * BigInt(100) / intent.amount);
+        plan.partialFill = {
+          originalAmount: intent.amount,
+          fillAmount: partialFillAmount,
+          fillPercentage,
+        };
+      }
+
+      return plan;
     } catch (error) {
       this.logger.error(`Error evaluating intent ${intent.intentId}:`, error);
       return null;
     }
+  }
+
+  async evaluatePartialFill(intent: IntentEvent, maxFillPercentage: number = 100): Promise<FulfillmentPlan | null> {
+    // Try full fill first
+    const fullPlan = await this.evaluate(intent);
+    if (fullPlan) return fullPlan;
+
+    // If full fill not profitable, try partial fills
+    const fillPercentages = [75, 50, 25, 10];
+    
+    for (const percentage of fillPercentages) {
+      if (percentage > maxFillPercentage) continue;
+      
+      const partialAmount = intent.amount * BigInt(percentage) / BigInt(100);
+      const partialPlan = await this.evaluate(intent, partialAmount);
+      
+      if (partialPlan) {
+        this.logger.info(`Partial fill ${percentage}% profitable for intent ${intent.intentId}`);
+        return partialPlan;
+      }
+    }
+
+    this.logger.info(`No profitable fill level found for intent ${intent.intentId}`);
+    return null;
   }
 
   private calculateProfit(input: bigint, output: bigint): number {

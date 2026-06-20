@@ -3,11 +3,14 @@ import { Logger } from './logger';
 import { SolverConfig, loadConfig } from './config';
 import { EventWatcher, IntentEvent } from './watcher';
 import { IntentEvaluator } from './evaluator';
-import { MockDEXAdapter } from './adapters/dex';
+import { MockDEXAdapter, DEXAdapter } from './adapters/dex';
 import { XDCOnlyStrategy } from './strategies/xdc-only';
 import { MiddlewareClient } from './middleware-client';
 import { TransactionSubmitter } from './submitter';
 import { StateManager } from './state';
+import { DynamicFeeManager } from './fees';
+import { FallbackStrategyManager } from './strategies';
+import { MultiHopRouter } from './routes';
 
 export class Solver {
   private logger: Logger;
@@ -18,6 +21,8 @@ export class Solver {
   private middleware: MiddlewareClient;
   private submitter: TransactionSubmitter;
   private state: StateManager;
+  private feeManager: DynamicFeeManager;
+  private fallbackManager: FallbackStrategyManager;
   private isRunning: boolean = false;
 
   constructor() {
@@ -25,6 +30,11 @@ export class Solver {
     this.logger = createLogger(this.config);
     
     const dexAdapter = new MockDEXAdapter();
+    const dexAdapters = new Map<string, DEXAdapter>();
+    dexAdapters.set('XDC-USDC', dexAdapter);
+    dexAdapters.set('USDC-XDC', dexAdapter);
+    
+    const provider = new ethers.JsonRpcProvider(this.config.rpcUrl);
     
     this.watcher = new EventWatcher(this.config, this.logger);
     this.evaluator = new IntentEvaluator(this.config, this.logger);
@@ -32,6 +42,8 @@ export class Solver {
     this.middleware = new MiddlewareClient(this.config, this.logger);
     this.submitter = new TransactionSubmitter(this.config, this.logger);
     this.state = new StateManager(this.logger);
+    this.feeManager = new DynamicFeeManager(this.config, this.logger, provider);
+    this.fallbackManager = new FallbackStrategyManager(this.config, this.logger, dexAdapter, dexAdapters);
   }
 
   async start(): Promise<void> {
@@ -46,6 +58,10 @@ export class Solver {
     this.logger.info(`Network: XDC Apothem (Chain ID: ${this.config.chainId})`);
     this.logger.info(`Min profit margin: ${this.config.minProfitMargin}%`);
     this.logger.info(`Max gas price: ${this.config.maxGasPriceGwei} gwei`);
+    this.logger.info('Features: Dynamic fees, Partial fills, Multi-hop routes, Fallback strategies');
+
+    // Start dynamic fee monitoring
+    this.feeManager.startMonitoring(5); // Every 5 minutes
 
     // Start event watcher
     await this.watcher.start(async (intent) => {
@@ -125,8 +141,26 @@ export class Solver {
         reason: `Profitable: ${evaluation.estimatedProfit?.toFixed(2)}%`,
       });
 
-      // Get fulfillment plan
-      const plan = await this.strategy.evaluate(intent);
+      // Get fulfillment plan using fallback strategies
+      const strategyResult = await this.fallbackManager.evaluateWithFallback(intent);
+      
+      if (!strategyResult || strategyResult.strategy === 'retry-later') {
+        this.logger.info(`No profitable strategy found for intent ${intent.intentId}`);
+        this.state.markFailed(intent.intentId);
+        this.state.logDecision({
+          timestamp: Math.floor(Date.now() / 1000),
+          intentId: intent.intentId,
+          decision: 'skipped',
+          reason: 'No profitable strategy found',
+        });
+        return;
+      }
+
+      this.logger.info(`Using strategy: ${this.fallbackManager.getStrategyName(strategyResult.strategy)}`, {
+        executionTime: strategyResult.executionTime,
+      });
+
+      const plan = strategyResult.plan;
       
       if (!plan) {
         this.logger.info(`Intent ${intent.intentId} not profitable after strategy evaluation`);
