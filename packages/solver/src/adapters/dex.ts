@@ -76,20 +76,26 @@ export class MockDEXAdapter implements DEXAdapter {
   }
 }
 
-// Real DEX adapter for XDC (placeholder for mainnet)
-export class XDCRealDEXAdapter implements DEXAdapter {
-  private contract: ethers.Contract;
+// Real DEX adapter for deployed SimpleDEX on Apothem testnet
+export class SimpleDEXAdapter implements DEXAdapter {
+  private router: ethers.Contract;
+  private factory: ethers.Contract;
   
   constructor(
-    private routerAddress: string,
+    routerAddress: string,
+    factoryAddress: string,
     private provider: ethers.Provider
   ) {
-    // Router ABI for common DEX functions
-    const abi = [
-      'function getAmountsOut(uint amountIn, address[] calldata path) external view returns (uint[] memory amounts)',
+    const routerAbi = [
+      'function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)',
       'function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)',
     ];
-    this.contract = new ethers.Contract(routerAddress, abi, provider);
+    const factoryAbi = [
+      'function getPair(address tokenA, address tokenB) external view returns (address pair)',
+    ];
+    
+    this.router = new ethers.Contract(routerAddress, routerAbi, provider);
+    this.factory = new ethers.Contract(factoryAddress, factoryAbi, provider);
   }
   
   async getQuote(
@@ -98,19 +104,26 @@ export class XDCRealDEXAdapter implements DEXAdapter {
     inputAmount: bigint
   ): Promise<SwapQuote> {
     try {
+      // Check if pair exists
+      const pair = await this.factory.getPair(inputToken, outputToken);
+      if (pair === ethers.ZeroAddress) {
+        throw new Error('No liquidity pair found');
+      }
+
       const path = [inputToken, outputToken];
-      const amounts = await this.contract.getAmountsOut(inputAmount, path);
-      
+      const amounts = await this.router.getAmountsOut(inputAmount, path);
+      const outputAmount = amounts[amounts.length - 1];
+
       return {
         inputToken,
         outputToken,
         inputAmount,
-        outputAmount: amounts[amounts.length - 1],
-        exchangeRate: Number(amounts[amounts.length - 1]) / Number(inputAmount),
-        gasEstimate: BigInt(200000), // Estimate for DEX swap
+        outputAmount,
+        exchangeRate: Number(outputAmount) / Number(inputAmount),
+        gasEstimate: BigInt(150000),
       };
     } catch (error) {
-      throw new Error(`Failed to get quote from DEX: ${error}`);
+      throw new Error(`Failed to get quote: ${error}`);
     }
   }
   
@@ -118,17 +131,16 @@ export class XDCRealDEXAdapter implements DEXAdapter {
     quote: SwapQuote,
     signer: ethers.Signer
   ): Promise<ethers.TransactionResponse> {
-    const deadline = Math.floor(Date.now() / 1000) + 300; // 5 min deadline
-    const path = [quote.inputToken, quote.outputToken];
-    
-    const tx = await (this.contract.connect(signer) as any).swapExactTokensForTokens(
+    const routerWithSigner = this.router.connect(signer);
+    const deadline = Math.floor(Date.now() / 1000) + 300;
+    const minOutput = quote.outputAmount * BigInt(95) / BigInt(100); // 5% slippage
+
+    return await (routerWithSigner as any).swapExactTokensForTokens(
       quote.inputAmount,
-      quote.outputAmount * BigInt(99) / BigInt(100), // 1% slippage tolerance
-      path,
+      minOutput,
+      [quote.inputToken, quote.outputToken],
       await signer.getAddress(),
       deadline
     );
-    
-    return tx;
   }
 }
