@@ -1,10 +1,11 @@
 import { Link, useLocation } from 'react-router-dom'
 import { Wallet, Menu, X, Home, PlusCircle, List, Globe, Cpu } from 'lucide-react'
 import { useState } from 'react'
+import { useWallet } from '../hooks/useWallet'
 
 function Layout({ children }: { children: React.ReactNode }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const [isWalletConnected, setIsWalletConnected] = useState(false)
+  const { address, isConnected, isConnecting, connect, disconnect } = useWallet()
   const location = useLocation()
 
   const navItems = [
@@ -54,16 +55,17 @@ function Layout({ children }: { children: React.ReactNode }) {
             {/* Wallet & Mobile Menu */}
             <div className="flex items-center gap-3">
               <button
-                onClick={() => setIsWalletConnected(!isWalletConnected)}
+                onClick={() => isConnected ? disconnect() : connect()}
+                disabled={isConnecting}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  isWalletConnected
+                  isConnected
                     ? 'bg-green-50 text-green-700 border border-green-200'
                     : 'btn-primary'
                 }`}
               >
                 <Wallet className="w-4 h-4" />
                 <span className="hidden sm:inline">
-                  {isWalletConnected ? '0x123...abc' : 'Connect Wallet'}
+                  {isConnecting ? 'Connecting...' : isConnected ? `${address?.slice(0, 6)}...${address?.slice(-4)}` : 'Connect Wallet'}
                 </span>
               </button>
 

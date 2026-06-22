@@ -1,7 +1,10 @@
 import { Link } from 'react-router-dom'
 import { Wallet, Zap, Shield, BarChart3 } from 'lucide-react'
+import { useStats } from '../hooks/useIntents'
 
 function Home() {
+  const { stats, loading } = useStats()
+
   return (
     <div className="space-y-12">
       {/* Hero Section */}
@@ -25,10 +28,26 @@ function Home() {
 
       {/* Stats Section */}
       <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <StatCard icon={<Zap className="w-8 h-8" />} label="Total Intents" value="1,234" />
-        <StatCard icon={<Wallet className="w-8 h-8" />} label="Volume (TXDC)" value="50.2K" />
-        <StatCard icon={<Shield className="w-8 h-8" />} label="Active Solvers" value="12" />
-        <StatCard icon={<BarChart3 className="w-8 h-8" />} label="Avg Savings" value="0.4%" />
+        <StatCard 
+          icon={<Zap className="w-8 h-8" />} 
+          label="Total Intents" 
+          value={loading ? '...' : stats.totalIntents.toLocaleString()} 
+        />
+        <StatCard 
+          icon={<BarChart3 className="w-8 h-8" />} 
+          label="Fulfilled" 
+          value={loading ? '...' : stats.totalFulfilled.toLocaleString()} 
+        />
+        <StatCard 
+          icon={<Shield className="w-8 h-8" />} 
+          label="Active Solvers" 
+          value={loading ? '...' : stats.activeSolvers.toString()} 
+        />
+        <StatCard 
+          icon={<Wallet className="w-8 h-8" />} 
+          label="Avg Savings" 
+          value={`${stats.avgSavings}%`} 
+        />
       </section>
 
       {/* Features Section */}
