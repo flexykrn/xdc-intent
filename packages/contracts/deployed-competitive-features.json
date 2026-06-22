@@ -1,0 +1,8 @@
+{
+  "gaslessIntentExecutor": "0x2C6024bDA3b1dc6662a84210536894eFC702f0b0",
+  "smartAccountFactory": "0x9c64167F39A14FBd6A25608703F1A3a795A4aFa9",
+  "crossChainIntentBridge": "0x84ebBc1CD02E083A368C3E775a69c50138c65426",
+  "solverIncentivePool": "0xFA2db0D89d06869fbe29771705a2C4A5428cCdF7",
+  "relayerNetwork": "0x7c6201Afa63A37336d8B8FF7CF57498AB3D4E8dd",
+  "rewardToken": "0x148D54159656D8D8c36240c7cD73ce80e239e137"
+}

@@ -264,6 +264,13 @@ contract SolverRegistry is ReentrancyGuard {
     }
     
     /**
+     * @notice Get all registered solver addresses
+     */
+    function getAllSolvers() external view returns (address[] memory) {
+        return solverList;
+    }
+    
+    /**
      * @notice Get solver info
      */
     function getSolverInfo(address solver) external view returns (Solver memory) {
