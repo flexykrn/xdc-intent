@@ -49,6 +49,13 @@ contract SolverRegistry is ReentrancyGuard {
     // Intent ID => bids
     mapping(bytes32 => Bid[]) public intentBids;
     
+    /**
+     * @notice Check if a solver is registered
+     */
+    function isRegistered(address _solver) external view returns (bool) {
+        return solvers[_solver].isActive;
+    }
+    
     // Intent ID => winning solver
     mapping(bytes32 => address) public intentWinner;
     

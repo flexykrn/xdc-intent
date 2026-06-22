@@ -397,4 +397,26 @@ contract IntentRegistry is Ownable, Pausable, ReentrancyGuard {
     function getTotalProtocolFees() external view returns (uint256) {
         return totalProtocolFees;
     }
+    
+    /**
+     * @notice Get intent details as tuple (for MEVProtection compatibility)
+     */
+    function getIntentTuple(bytes32 intentId) external view returns (
+        address creator,
+        address token,
+        uint256 amount,
+        uint256 minOutput,
+        uint256 expiry,
+        uint8 status
+    ) {
+        Intent storage intent = intents[intentId];
+        return (
+            intent.user,
+            intent.token,
+            intent.amount,
+            intent.amount, // minOutput = amount for now
+            intent.expiryTimestamp,
+            uint8(intent.status)
+        );
+    }
 }
