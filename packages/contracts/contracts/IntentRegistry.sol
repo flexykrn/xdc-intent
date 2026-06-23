@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "./Escrow.sol";
+import "./SolverRegistry.sol";
 import "./PaymentVerifier.sol";
 
 /**
@@ -51,6 +52,9 @@ contract IntentRegistry is Ownable, Pausable, ReentrancyGuard {
     
     /// @notice Payment verifier for proof validation
     PaymentVerifier public paymentVerifier;
+
+    /// @notice Solver registry for solver validation
+    SolverRegistry public solverRegistry;
     
     /// @notice Intent ID => Intent struct
     mapping(bytes32 => Intent) public intents;
@@ -116,6 +120,7 @@ contract IntentRegistry is Ownable, Pausable, ReentrancyGuard {
     
     event EscrowUpdated(address indexed newEscrow);
     event PaymentVerifierUpdated(address indexed newPaymentVerifier);
+    event SolverRegistryUpdated(address indexed newSolverRegistry);
 
     // ============ Modifiers ============
     
@@ -205,39 +210,34 @@ contract IntentRegistry is Ownable, Pausable, ReentrancyGuard {
     }
     
     /**
-     * @notice Fulfill an intent — release tokens to solver after payment verification
+     * @notice Fulfill an intent with raw payment proof bytes (for MEVProtection integration)
      * @param intentId Intent to fulfill
      * @param solver Address of the solver who fulfilled the intent
-     * @param paymentProof Payment proof from PaymentVerifier
-     * @param signature EIP-712 signature for the proof
+     * @param paymentProofBytes Raw payment proof bytes
      */
-    function fulfillIntent(
+    function fulfillIntentWithBytes(
         bytes32 intentId,
         address solver,
-        PaymentVerifier.PaymentProof calldata paymentProof,
-        bytes calldata signature
+        bytes calldata paymentProofBytes
     ) external nonReentrant whenNotPaused intentExists(intentId) onlyPending(intentId) {
         require(solver != address(0), "IntentRegistry: zero solver");
         require(block.timestamp <= intents[intentId].expiryTimestamp, "IntentRegistry: intent expired");
         
+        // Check if solver is registered (if solverRegistry is set)
+        if (address(solverRegistry) != address(0)) {
+            require(solverRegistry.isRegistered(solver), "IntentRegistry: solver not registered");
+        }
+        
+        _fulfillIntent(intentId, solver, paymentProofBytes);
+    }
+    
+    function _fulfillIntent(bytes32 intentId, address solver, bytes calldata paymentProofBytes) internal {
         Intent storage intent = intents[intentId];
-        
-        // Verify payment proof
-        require(
-            paymentVerifier.verifyPayment(paymentProof, signature),
-            "IntentRegistry: payment verification failed"
-        );
-        
-        // Validate proof matches intent
-        require(paymentProof.intentId == intentId, "IntentRegistry: intent mismatch");
-        require(paymentProof.solver == solver, "IntentRegistry: solver mismatch");
-        require(paymentProof.token == intent.token, "IntentRegistry: token mismatch");
-        require(paymentProof.amount == intent.amount, "IntentRegistry: amount mismatch");
         
         // Update intent
         intent.solver = solver;
         intent.status = IntentStatus.Fulfilled;
-        intent.paymentProofHash = keccak256(abi.encode(paymentProof));
+        intent.paymentProofHash = keccak256(paymentProofBytes);
         intent.fulfilledAt = block.timestamp;
         
         // Track solver intents
@@ -338,6 +338,16 @@ contract IntentRegistry is Ownable, Pausable, ReentrancyGuard {
      */
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    /**
+     * @notice Update solver registry address (emergency only)
+     * @param newSolverRegistry New solver registry address
+     */
+    function setSolverRegistry(address newSolverRegistry) external onlyOwner {
+        require(newSolverRegistry != address(0), "IntentRegistry: zero address");
+        solverRegistry = SolverRegistry(newSolverRegistry);
+        emit SolverRegistryUpdated(newSolverRegistry);
     }
 
     // ============ View Functions ============

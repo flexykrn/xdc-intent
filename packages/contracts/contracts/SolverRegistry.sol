@@ -9,7 +9,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  * @title SolverRegistry
  * @notice Manages solver registration, staking, and reputation
  */
-contract SolverRegistry is ReentrancyGuard {
+contract SolverRegistry is ReentrancyGuard, Ownable {
     
     struct Solver {
         address solverAddress;
@@ -211,7 +211,7 @@ contract SolverRegistry is ReentrancyGuard {
     }
     
     /**
-     * @notice Slash solver for bad behavior
+     * @notice Slash solver for bad behavior - sends slashed funds to treasury
      */
     function slashSolver(address solver, uint256 amount) external {
         Solver storage s = solvers[solver];
@@ -221,8 +221,8 @@ contract SolverRegistry is ReentrancyGuard {
         s.stake -= amount;
         s.reputationScore = s.reputationScore > 2000 ? s.reputationScore - 2000 : 0;
         
-        // Transfer slashed amount to treasury
-        (bool success, ) = payable(msg.sender).call{value: amount}("");
+        // Transfer slashed amount to treasury (owner of this contract)
+        (bool success, ) = payable(owner()).call{value: amount}("");
         require(success, "Transfer failed");
         
         emit SolverSlashed(solver, amount);

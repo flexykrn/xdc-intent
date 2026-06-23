@@ -5,12 +5,14 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./IntentRegistry.sol";
 
+import "@openzeppelin/contracts/access/Ownable.sol";
+
 /**
  * @title CrossChainIntentBridge
  * @notice Enables cross-chain intent execution via Wanchain bridge
  * @dev Locks tokens on source chain, releases on destination
  */
-contract CrossChainIntentBridge is ReentrancyGuard {
+contract CrossChainIntentBridge is ReentrancyGuard, Ownable {
     
     IntentRegistry public intentRegistry;
     
@@ -71,11 +73,19 @@ contract CrossChainIntentBridge is ReentrancyGuard {
     }
     
     /**
-     * @notice Add a supported chain
+     * @notice Add a supported chain - only owner can add chains
      */
-    function addSupportedChain(uint256 _chainId, address _bridgeContract) external {
+    function addSupportedChain(uint256 _chainId, address _bridgeContract) external onlyOwner {
         supportedChains[_chainId] = true;
         bridgeContracts[_chainId] = _bridgeContract;
+    }
+    
+    /**
+     * @notice Remove a supported chain - only owner can remove chains
+     */
+    function removeSupportedChain(uint256 _chainId) external onlyOwner {
+        supportedChains[_chainId] = false;
+        bridgeContracts[_chainId] = address(0);
     }
     
     /**

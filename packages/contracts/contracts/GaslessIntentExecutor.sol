@@ -6,13 +6,14 @@ import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "./IntentRegistry.sol";
 import "./Escrow.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title GaslessIntentExecutor
  * @notice Enables gasless intent execution via EIP-712 signatures
  * @dev Users sign intents off-chain, relayers execute on-chain
  */
-contract GaslessIntentExecutor is EIP712, ReentrancyGuard {
+contract GaslessIntentExecutor is EIP712, ReentrancyGuard, Ownable {
     using ECDSA for bytes32;
 
     IntentRegistry public intentRegistry;
@@ -55,18 +56,17 @@ contract GaslessIntentExecutor is EIP712, ReentrancyGuard {
     }
     
     /**
-     * @notice Add an authorized relayer
+     * @notice Add an authorized relayer - only owner can add relayers
      */
-    function addRelayer(address _relayer) external {
-        // In production, use governance
+    function addRelayer(address _relayer) external onlyOwner {
         authorizedRelayers[_relayer] = true;
         emit RelayerAdded(_relayer);
     }
     
     /**
-     * @notice Remove a relayer
+     * @notice Remove a relayer - only owner can remove relayers
      */
-    function removeRelayer(address _relayer) external {
+    function removeRelayer(address _relayer) external onlyOwner {
         authorizedRelayers[_relayer] = false;
         emit RelayerRemoved(_relayer);
     }

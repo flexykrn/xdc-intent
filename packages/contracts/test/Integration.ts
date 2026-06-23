@@ -20,8 +20,10 @@ describe("Integration: End-to-End Intent Flow", function () {
   const PROTOCOL_FEE_BPS = 100; // 1%
   const PROTOCOL_FEE = (AMOUNT * BigInt(PROTOCOL_FEE_BPS)) / 10000n;
 
-  function getExpiry() {
-    return Math.floor(Date.now() / 1000) + 3600;
+  // Helper to get dynamic expiry using blockchain time (not Date.now())
+  async function getExpiry() {
+    const latestBlock = await ethers.provider.getBlock('latest');
+    return Number(latestBlock!.timestamp) + 86400; // 24 hours from block timestamp
   }
 
   async function createAndSignProof(
@@ -108,7 +110,7 @@ describe("Integration: End-to-End Intent Flow", function () {
   });
 
   it("Should complete full intent lifecycle: create -> fulfill", async function () {
-    const expiry = getExpiry();
+    const expiry = await getExpiry();
     const tokenAddress = await mockToken.getAddress();
     const escrowAddress = await escrow.getAddress();
 
@@ -157,10 +159,9 @@ describe("Integration: End-to-End Intent Flow", function () {
     ];
 
     await expect(
-      intentRegistry.connect(other).fulfillIntent(
+      intentRegistry.connect(other).fulfillIntentWithBytes(
         INTENT_ID,
         solver.address,
-        proofTuple,
         signature
       )
     )
@@ -194,7 +195,7 @@ describe("Integration: End-to-End Intent Flow", function () {
   });
 
   it("Should verify events emitted in correct order during create -> fulfill", async function () {
-    const expiry = getExpiry();
+    const expiry = await getExpiry();
     const tokenAddress = await mockToken.getAddress();
 
     // Create intent and capture transaction
@@ -242,7 +243,7 @@ describe("Integration: End-to-End Intent Flow", function () {
         intentIds[i],
         tokenAddress,
         amounts[i],
-        getExpiry()
+        await getExpiry()
       );
     }
 
@@ -270,7 +271,7 @@ describe("Integration: End-to-End Intent Flow", function () {
   });
 
   it("Should complete full intent lifecycle: create -> cancel", async function () {
-    const expiry = getExpiry();
+    const expiry = await getExpiry();
     const tokenAddress = await mockToken.getAddress();
 
     // Create intent

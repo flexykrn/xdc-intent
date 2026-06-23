@@ -5,12 +5,14 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./GaslessIntentExecutor.sol";
 
+import "@openzeppelin/contracts/access/Ownable.sol";
+
 /**
  * @title RelayerNetwork
  * @notice Decentralized relayer network for gasless transactions
  * @dev Relayers compete to execute transactions, earn fees
  */
-contract RelayerNetwork is ReentrancyGuard {
+contract RelayerNetwork is ReentrancyGuard, Ownable {
     
     GaslessIntentExecutor public executor;
     
@@ -52,17 +54,16 @@ contract RelayerNetwork is ReentrancyGuard {
     }
     
     /**
-     * @notice Register as a relayer with stake
+     * @notice Register as a relayer with stake - must send stake with transaction
      */
-    function registerRelayer(uint256 _stake) external nonReentrant {
-        require(_stake >= minStake, "Insufficient stake");
+    function registerRelayer() external payable nonReentrant {
+        require(msg.value >= minStake, "Insufficient stake");
         require(!relayers[msg.sender].isActive, "Already registered");
         
-        // Transfer stake
-        // In production, use specific staking token
+        // Stake is transferred via msg.value
         
         relayers[msg.sender] = Relayer({
-            stake: _stake,
+            stake: msg.value,
             totalExecuted: 0,
             totalFeesEarned: 0,
             reputation: 100, // Base reputation
@@ -75,7 +76,7 @@ contract RelayerNetwork is ReentrancyGuard {
         // Authorize in executor
         executor.addRelayer(msg.sender);
         
-        emit RelayerRegistered(msg.sender, _stake);
+        emit RelayerRegistered(msg.sender, msg.value);
     }
     
     /**
@@ -89,7 +90,9 @@ contract RelayerNetwork is ReentrancyGuard {
             "Too recent"
         );
         
+        uint256 stakeToReturn = relayer.stake;
         relayer.isActive = false;
+        relayer.stake = 0;
         
         // Remove from active list
         for (uint256 i = 0; i < activeRelayerList.length; i++) {
@@ -100,12 +103,13 @@ contract RelayerNetwork is ReentrancyGuard {
             }
         }
         
-        // Return stake (simplified)
-        // In production, handle stake return properly
+        // Return stake to relayer
+        (bool success, ) = payable(msg.sender).call{value: stakeToReturn}("");
+        require(success, "Stake return failed");
         
         executor.removeRelayer(msg.sender);
         
-        emit RelayerUnregistered(msg.sender, relayer.stake);
+        emit RelayerUnregistered(msg.sender, stakeToReturn);
     }
     
     /**
@@ -200,9 +204,9 @@ contract RelayerNetwork is ReentrancyGuard {
     }
     
     /**
-     * @notice Update fee settings
+     * @notice Update fee settings - only owner can update fees
      */
-    function updateFees(uint256 _baseFee, uint256 _maxFee) external {
+    function updateFees(uint256 _baseFee, uint256 _maxFee) external onlyOwner {
         baseFee = _baseFee;
         maxFee = _maxFee;
         emit FeeUpdated(_baseFee);

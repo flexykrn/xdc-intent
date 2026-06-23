@@ -127,8 +127,13 @@ contract MEVProtection is ReentrancyGuard {
      * @notice Execute a revealed intent (only after reveal)
      * @param _commitmentHash The commitment hash
      * @param _intentId The actual intent ID from IntentRegistry
+     * @param _paymentProof Payment proof for fulfillment
      */
-    function executeRevealedIntent(bytes32 _commitmentHash, bytes32 _intentId) external onlyRegisteredSolver nonReentrant {
+    function executeRevealedIntent(
+        bytes32 _commitmentHash,
+        bytes32 _intentId,
+        bytes calldata _paymentProof
+    ) external onlyRegisteredSolver nonReentrant {
         Commitment storage commitment = commitments[_commitmentHash];
         
         require(commitment.revealed, "MEVProtection: Not revealed");
@@ -140,8 +145,9 @@ contract MEVProtection is ReentrancyGuard {
         
         commitment.executed = true;
         
-        // Execute through intent registry
-        // Note: This would need to be adapted to the actual fulfillIntent signature
+        // Execute through intent registry - actually fulfill the intent
+        // This calls the real fulfillIntentWithBytes on the IntentRegistry
+        intentRegistry.fulfillIntentWithBytes(_intentId, msg.sender, _paymentProof);
     }
     
     // ============ Batch Auctions ============
@@ -220,7 +226,7 @@ contract MEVProtection is ReentrancyGuard {
      * @notice Execute a settled batch (only winning solver)
      * @param _batchId The batch ID
      */
-    function executeBatch(uint256 _batchId) external onlyRegisteredSolver nonReentrant {
+    function executeBatch(uint256 _batchId, bytes calldata _paymentProof) external onlyRegisteredSolver nonReentrant {
         Batch storage batch = batches[_batchId];
         
         require(batch.settled, "MEVProtection: Batch not settled");
@@ -236,8 +242,8 @@ contract MEVProtection is ReentrancyGuard {
             // Check if intent is still pending
             (,,,,, uint8 status) = intentRegistry.getIntentTuple(intentId);
             if (status == 0) { // Pending
-                // Note: Would need to call fulfillIntent with proper parameters
-                // For now, just mark as executed in the batch
+                // Actually fulfill the intent through the registry
+                intentRegistry.fulfillIntentWithBytes(intentId, msg.sender, _paymentProof);
             }
         }
     }

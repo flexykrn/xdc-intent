@@ -18,8 +18,10 @@ describe("IntentRegistry", function () {
   const INTENT_ID = ethers.keccak256(ethers.toUtf8Bytes("test-intent"));
   const AMOUNT = ethers.parseEther("1000");
   // Helper to get dynamic expiry
-  function getExpiry() {
-    return Math.floor(Date.now() / 1000) + 3600;
+  // Helper to get dynamic expiry using blockchain time (not Date.now())
+  async function getExpiry() {
+    const latestBlock = await ethers.provider.getBlock('latest');
+    return Number(latestBlock!.timestamp) + 86400; // 24 hours from block timestamp
   }
 
   beforeEach(async function () {
@@ -80,7 +82,7 @@ describe("IntentRegistry", function () {
 
   describe("createIntent", function () {
     it("Should create intent successfully", async function () {
-      const expiry = getExpiry();
+      const expiry = await getExpiry();
       
       // Debug: Check balance and allowance
       const balance = await mockToken.balanceOf(user.address);
@@ -109,7 +111,7 @@ describe("IntentRegistry", function () {
     });
 
     it("Should lock tokens in escrow", async function () {
-      const expiry = getExpiry();
+      const expiry = await getExpiry();
 
       await registry.connect(user).createIntent(
         INTENT_ID,
@@ -128,7 +130,7 @@ describe("IntentRegistry", function () {
           ethers.ZeroHash,
           await mockToken.getAddress(),
           AMOUNT,
-          getExpiry()
+          await getExpiry()
         )
       ).to.be.revertedWith("IntentRegistry: zero intent id");
     });
@@ -139,7 +141,7 @@ describe("IntentRegistry", function () {
           INTENT_ID,
           ethers.ZeroAddress,
           AMOUNT,
-          getExpiry()
+          await getExpiry()
         )
       ).to.be.revertedWith("IntentRegistry: zero token");
     });
@@ -150,7 +152,7 @@ describe("IntentRegistry", function () {
           INTENT_ID,
           await mockToken.getAddress(),
           1,
-          getExpiry()
+          await getExpiry()
         )
       ).to.be.revertedWith("IntentRegistry: amount too small");
     });
@@ -167,18 +169,19 @@ describe("IntentRegistry", function () {
     });
 
     it("Should revert with expiry too far", async function () {
+      const now = await ethers.provider.getBlock("latest").then(b => b!.timestamp);
       await expect(
         registry.connect(user).createIntent(
           INTENT_ID,
           await mockToken.getAddress(),
           AMOUNT,
-          Math.floor(Date.now() / 1000) + 31 * 24 * 60 * 60 // 31 days
+          now + 31 * 24 * 60 * 60 // 31 days from now
         )
       ).to.be.revertedWith("IntentRegistry: expiry too far");
     });
 
     it("Should revert when intent exists", async function () {
-      const expiry = getExpiry();
+      const expiry = await getExpiry();
       await registry.connect(user).createIntent(
         INTENT_ID,
         await mockToken.getAddress(),
@@ -203,7 +206,7 @@ describe("IntentRegistry", function () {
           INTENT_ID,
           await mockToken.getAddress(),
           AMOUNT,
-          getExpiry()
+          await getExpiry()
         )
       ).to.be.revertedWith("Pausable: paused");
     });
@@ -211,7 +214,7 @@ describe("IntentRegistry", function () {
 
   describe("fulfillIntent", function () {
     beforeEach(async function () {
-      const expiry = getExpiry();
+      const expiry = await getExpiry();
       await registry.connect(user).createIntent(
         INTENT_ID,
         await mockToken.getAddress(),
@@ -221,7 +224,7 @@ describe("IntentRegistry", function () {
     });
 
     it("Should fulfill intent successfully", async function () {
-      const expiry = getExpiry();
+      const expiry = await getExpiry();
       const protocolFee = await escrow.calculateProtocolFee(AMOUNT);
 
       // Create payment proof
@@ -257,10 +260,9 @@ describe("IntentRegistry", function () {
       const signature = await signer.signTypedData(domain, types, proof);
 
       await expect(
-        registry.connect(solver).fulfillIntent(
+        registry.connect(solver).fulfillIntentWithBytes(
           INTENT_ID,
           solver.address,
-          proof,
           signature
         )
       )
@@ -274,18 +276,9 @@ describe("IntentRegistry", function () {
 
     it("Should revert with zero solver", async function () {
       await expect(
-        registry.connect(solver).fulfillIntent(
+        registry.connect(solver).fulfillIntentWithBytes(
           INTENT_ID,
           ethers.ZeroAddress,
-          {
-            intentId: INTENT_ID,
-            solver: ethers.ZeroAddress,
-            token: await mockToken.getAddress(),
-            amount: AMOUNT,
-            protocolFee: 0,
-            expiryTimestamp: Math.floor(Date.now() / 1000) + 3600,
-            chainId: 31337,
-          },
           "0x"
         )
       ).to.be.revertedWith("IntentRegistry: zero solver");
@@ -336,17 +329,16 @@ describe("IntentRegistry", function () {
         token: await mockToken.getAddress(),
         amount: AMOUNT,
         protocolFee: protocolFee,
-        expiryTimestamp: getExpiry(),
+        expiryTimestamp: await getExpiry(),
         chainId: 31337,
       };
 
       const signature = await signer.signTypedData(domain, types, proof);
 
       await expect(
-        registry.connect(solver).fulfillIntent(
+        registry.connect(solver).fulfillIntentWithBytes(
           shortExpiryId,
           solver.address,
-          proof,
           signature
         )
       ).to.be.revertedWith("IntentRegistry: intent expired");
@@ -355,7 +347,7 @@ describe("IntentRegistry", function () {
 
   describe("cancelIntent", function () {
     beforeEach(async function () {
-      const expiry = getExpiry();
+      const expiry = await getExpiry();
       await registry.connect(user).createIntent(
         INTENT_ID,
         await mockToken.getAddress(),
@@ -386,7 +378,7 @@ describe("IntentRegistry", function () {
 
     it("Should revert when already fulfilled", async function () {
       // First fulfill the intent
-      const expiry = getExpiry();
+      const expiry = await getExpiry();
       const protocolFee = await escrow.calculateProtocolFee(AMOUNT);
 
       const domain = {
@@ -420,10 +412,9 @@ describe("IntentRegistry", function () {
 
       const signature = await signer.signTypedData(domain, types, proof);
 
-      await registry.connect(solver).fulfillIntent(
+      await registry.connect(solver).fulfillIntentWithBytes(
         INTENT_ID,
         solver.address,
-        proof,
         signature
       );
 
@@ -463,7 +454,7 @@ describe("IntentRegistry", function () {
     });
 
     it("Should revert before expiry", async function () {
-      const expiry = getExpiry();
+      const expiry = await getExpiry();
       await registry.connect(user).createIntent(
         INTENT_ID,
         await mockToken.getAddress(),
@@ -519,7 +510,7 @@ describe("IntentRegistry", function () {
 
   describe("View Functions", function () {
     beforeEach(async function () {
-      const expiry = getExpiry();
+      const expiry = await getExpiry();
       await registry.connect(user).createIntent(
         INTENT_ID,
         await mockToken.getAddress(),
