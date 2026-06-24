@@ -25,7 +25,19 @@ export const INTENT_REGISTRY_ABI = [
   "function getTotalIntentsFulfilled() view returns (uint256)",
   "function getUserIntents(address user) view returns (bytes32[])",
   "function getIntent(bytes32 intentId) view returns (tuple(bytes32,address,address,address,uint256,uint256,uint256,uint8,bytes32,uint256,uint256))",
+  "function cancelIntent(bytes32 intentId) external",
   "event IntentCreated(bytes32 indexed intentId, address indexed user, address token, uint256 amount, uint256 protocolFee, uint256 expiryTimestamp)",
+  "event IntentFulfilled(bytes32 indexed intentId, address indexed solver, uint256 amountOut)",
+  "event IntentCancelled(bytes32 indexed intentId)",
+];
+
+export const ERC20_ABI = [
+  "function approve(address spender, uint256 amount) external returns (bool)",
+  "function allowance(address owner, address spender) external view returns (uint256)",
+  "function balanceOf(address account) external view returns (uint256)",
+  "function decimals() external view returns (uint8)",
+  "function symbol() external view returns (string)",
+  "function name() external view returns (string)",
 ];
 
 export const SOLVER_REGISTRY_ABI = [
