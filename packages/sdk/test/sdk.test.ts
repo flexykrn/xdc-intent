@@ -1,19 +1,22 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ethers } from 'hardhat';
 import { XDCIntentSDK, IntentStatus, CHAIN_IDS } from '../src/index';
-import { MockERC20, Escrow, PaymentVerifier, IntentRegistry } from '../../contracts/typechain-types';
 
 describe('XDCIntentSDK', () => {
   let sdk: XDCIntentSDK;
-  let mockToken: MockERC20;
-  let escrow: Escrow;
-  let paymentVerifier: PaymentVerifier;
-  let intentRegistry: IntentRegistry;
+  let mockToken: any;
+  let escrow: any;
+  let paymentVerifier: any;
+  let intentRegistry: any;
   let owner: any;
   let user: any;
   let solver: any;
+  let ethers: any;
 
   beforeEach(async () => {
+    // Import hardhat ethers dynamically to ensure it's loaded
+    const hre = await import('hardhat');
+    ethers = hre.ethers;
+    
     [owner, user, solver] = await ethers.getSigners();
 
     // Deploy MockERC20
