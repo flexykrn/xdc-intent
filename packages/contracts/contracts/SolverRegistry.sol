@@ -211,9 +211,9 @@ contract SolverRegistry is ReentrancyGuard, Ownable {
     }
     
     /**
-     * @notice Slash solver for bad behavior - sends slashed funds to treasury
+     * @notice Slash solver for bad behavior - only owner can slash, sends funds to treasury
      */
-    function slashSolver(address solver, uint256 amount) external {
+    function slashSolver(address solver, uint256 amount) external onlyOwner {
         Solver storage s = solvers[solver];
         require(s.isActive, "Not active");
         require(s.stake >= amount, "Insufficient stake");
