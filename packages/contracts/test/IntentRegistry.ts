@@ -47,11 +47,17 @@ describe("IntentRegistry", function () {
     await verifier.waitForDeployment();
     await verifier.connect(owner).addSigner(signer.address);
 
+    // Deploy PriceOracle
+    const PriceOracleFactory = await ethers.getContractFactory("PriceOracle");
+    const priceOracle = await PriceOracleFactory.deploy(500, 300);
+    await priceOracle.waitForDeployment();
+
     // Deploy IntentRegistry
     const IntentRegistryFactory = await ethers.getContractFactory("IntentRegistry");
     registry = await IntentRegistryFactory.deploy(
       await escrow.getAddress(),
-      await verifier.getAddress()
+      await verifier.getAddress(),
+      await priceOracle.getAddress()
     );
     await registry.waitForDeployment();
 

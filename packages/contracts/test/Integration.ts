@@ -87,11 +87,17 @@ describe("Integration: End-to-End Intent Flow", function () {
     paymentVerifier = await PaymentVerifierFactory.deploy();
     await paymentVerifier.waitForDeployment();
 
+    // Deploy PriceOracle
+    const PriceOracleFactory = await ethers.getContractFactory("PriceOracle");
+    const priceOracle = await PriceOracleFactory.deploy(500, 300); // 5% slippage, 5 min interval
+    await priceOracle.waitForDeployment();
+
     // Deploy IntentRegistry
     const IntentRegistryFactory = await ethers.getContractFactory("IntentRegistry");
     intentRegistry = await IntentRegistryFactory.deploy(
       await escrow.getAddress(),
-      await paymentVerifier.getAddress()
+      await paymentVerifier.getAddress(),
+      await priceOracle.getAddress()
     );
     await intentRegistry.waitForDeployment();
 

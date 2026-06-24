@@ -10,6 +10,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./Escrow.sol";
 import "./SolverRegistry.sol";
 import "./PaymentVerifier.sol";
+import "./PriceOracle.sol";
 
 /**
  * @title IntentRegistry
@@ -55,6 +56,9 @@ contract IntentRegistry is Ownable, Pausable, ReentrancyGuard {
 
     /// @notice Solver registry for solver validation
     SolverRegistry public solverRegistry;
+
+    /// @notice Price oracle for slippage protection
+    PriceOracle public priceOracle;
     
     /// @notice Intent ID => Intent struct
     mapping(bytes32 => Intent) public intents;
@@ -121,6 +125,7 @@ contract IntentRegistry is Ownable, Pausable, ReentrancyGuard {
     event EscrowUpdated(address indexed newEscrow);
     event PaymentVerifierUpdated(address indexed newPaymentVerifier);
     event SolverRegistryUpdated(address indexed newSolverRegistry);
+    event PriceOracleUpdated(address indexed newPriceOracle);
 
     // ============ Modifiers ============
     
@@ -143,12 +148,15 @@ contract IntentRegistry is Ownable, Pausable, ReentrancyGuard {
     
     constructor(
         address _escrow,
-        address _paymentVerifier
+        address _paymentVerifier,
+        address _priceOracle
     ) Ownable() {
         require(_escrow != address(0), "IntentRegistry: zero escrow");
         require(_paymentVerifier != address(0), "IntentRegistry: zero payment verifier");
+        require(_priceOracle != address(0), "IntentRegistry: zero price oracle");
         escrow = Escrow(_escrow);
         paymentVerifier = PaymentVerifier(_paymentVerifier);
+        priceOracle = PriceOracle(_priceOracle);
     }
 
     // ============ External Functions ============
@@ -226,6 +234,47 @@ contract IntentRegistry is Ownable, Pausable, ReentrancyGuard {
         // Check if solver is registered (if solverRegistry is set)
         if (address(solverRegistry) != address(0)) {
             require(solverRegistry.isRegistered(solver), "IntentRegistry: solver not registered");
+        }
+        
+        _fulfillIntent(intentId, solver, paymentProofBytes);
+    }
+
+    /**
+     * @notice Fulfill an intent with price oracle slippage check
+     * @param intentId Intent to fulfill
+     * @param solver Address of the solver who fulfilled the intent
+     * @param paymentProofBytes Raw payment proof bytes
+     * @param pair DEX pair address for price checking
+     * @param expectedAmountOut Expected amount of output tokens (user's expectation)
+     * @param actualAmountOut Actual amount of output tokens offered by solver
+     */
+    function fulfillIntentWithPriceCheck(
+        bytes32 intentId,
+        address solver,
+        bytes calldata paymentProofBytes,
+        address pair,
+        address tokenOut,
+        uint256 expectedAmountOut,
+        uint256 actualAmountOut
+    ) external nonReentrant whenNotPaused intentExists(intentId) onlyPending(intentId) {
+        require(solver != address(0), "IntentRegistry: zero solver");
+        require(block.timestamp <= intents[intentId].expiryTimestamp, "IntentRegistry: intent expired");
+        
+        // Check if solver is registered (if solverRegistry is set)
+        if (address(solverRegistry) != address(0)) {
+            require(solverRegistry.isRegistered(solver), "IntentRegistry: solver not registered");
+        }
+        
+        // Price oracle slippage check
+        if (address(priceOracle) != address(0)) {
+            address tokenIn = intents[intentId].token;
+            priceOracle.checkFulfillmentPrice(
+                tokenIn,
+                tokenOut,
+                pair,
+                expectedAmountOut,
+                actualAmountOut
+            );
         }
         
         _fulfillIntent(intentId, solver, paymentProofBytes);
@@ -348,6 +397,16 @@ contract IntentRegistry is Ownable, Pausable, ReentrancyGuard {
         require(newSolverRegistry != address(0), "IntentRegistry: zero address");
         solverRegistry = SolverRegistry(newSolverRegistry);
         emit SolverRegistryUpdated(newSolverRegistry);
+    }
+
+    /**
+     * @notice Update price oracle address (emergency only)
+     * @param newPriceOracle New price oracle address
+     */
+    function setPriceOracle(address newPriceOracle) external onlyOwner {
+        require(newPriceOracle != address(0), "IntentRegistry: zero address");
+        priceOracle = PriceOracle(newPriceOracle);
+        emit PriceOracleUpdated(newPriceOracle);
     }
 
     // ============ View Functions ============
