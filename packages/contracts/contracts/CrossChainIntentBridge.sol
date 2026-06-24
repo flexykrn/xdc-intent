@@ -175,7 +175,7 @@ contract CrossChainIntentBridge is ReentrancyGuard, Ownable {
     function completeCrossChain(
         bytes32 _intentId,
         bool _success
-    ) external nonReentrant {
+    ) external onlyBridge(crossChainIntents[_intentId].targetChain) nonReentrant {
         CrossChainStatus storage status = crossChainIntents[_intentId];
         require(status.locked, "Not locked");
         require(!status.completed, "Already completed");
