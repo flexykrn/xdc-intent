@@ -1,0 +1,110 @@
+type Intent @entity {
+  id: ID!                          # intentId (bytes32 as hex string)
+  user: User!                     # who created the intent
+  solver: Solver                   # who fulfilled it (null if pending)
+  token: Token!                    # token being traded
+  amount: BigInt!                  # amount of tokens
+  protocolFee: BigInt!             # fee charged
+  expiryTimestamp: BigInt!        # when it expires
+  status: IntentStatus!           # Pending, Fulfilled, Cancelled, Expired
+  paymentProofHash: Bytes         # hash of payment proof
+  createdAt: BigInt!              # block timestamp
+  fulfilledAt: BigInt            # when fulfilled (null if pending)
+  batch: Batch                   # if part of a batch
+}
+
+type User @entity {
+  id: ID!                         # address
+  intents: [Intent!]! @derivedFrom(field: "user")
+  totalIntents: BigInt!
+  totalFulfilled: BigInt!
+  totalCancelled: BigInt!
+  totalExpired: BigInt!
+  totalVolume: BigInt!            # sum of all intent amounts
+}
+
+type Solver @entity {
+  id: ID!                         # address
+  intents: [Intent!]! @derivedFrom(field: "solver")
+  isRegistered: Boolean!
+  reputationScore: BigInt!        # based on fill rate, speed, price improvement
+  totalFulfilled: BigInt!
+  totalVolume: BigInt!            # sum of fulfilled amounts
+  averageFillTime: BigInt!        # average time from creation to fulfillment
+  slashedAmount: BigInt!          # total slashed
+}
+
+type Token @entity {
+  id: ID!                         # address
+  symbol: String!                 # token symbol
+  name: String!                   # token name
+  decimals: Int!                # token decimals
+  totalIntents: BigInt!
+  totalVolume: BigInt!
+}
+
+type Batch @entity {
+  id: ID!                         # batchId
+  intents: [Intent!]!             # intents in this batch
+  tokens: [Token!]!               # unique tokens in batch
+  winningSolver: Solver            # winning solver
+  winningBid: BigInt!             # price improvement in bps
+  createdAt: BigInt!
+  auctionEndTime: BigInt!
+  status: BatchStatus!            # Open, Closed, Settled, Cancelled
+  bids: [Bid!]! @derivedFrom(field: "batch")
+}
+
+type Bid @entity {
+  id: ID!                         # batchId-solverAddress
+  batch: Batch!
+  solver: Solver!
+  priceImprovementBps: BigInt!
+  bidProof: Bytes
+  createdAt: BigInt!
+}
+
+type EscrowLock @entity {
+  id: ID!                         # intentId
+  intent: Intent!
+  token: Token!
+  amount: BigInt!
+  user: User!
+  createdAt: BigInt!
+}
+
+type EscrowRelease @entity {
+  id: ID!                         # intentId-release
+  intent: Intent!
+  token: Token!
+  amount: BigInt!
+  solver: Solver!
+  releasedAt: BigInt!
+}
+
+type DailyStats @entity {
+  id: ID!                         # YYYY-MM-DD
+  date: String!
+  totalIntents: BigInt!
+  totalFulfilled: BigInt!
+  totalCancelled: BigInt!
+  totalExpired: BigInt!
+  totalVolume: BigInt!
+  totalProtocolFees: BigInt!
+  uniqueUsers: BigInt!
+  uniqueSolvers: BigInt!
+}
+
+enum IntentStatus {
+  Pending
+  Fulfilled
+  Cancelled
+  Expired
+}
+
+enum BatchStatus {
+  Open
+  Closed
+  Settled
+  Cancelled
+}

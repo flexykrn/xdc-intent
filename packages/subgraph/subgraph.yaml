@@ -1,0 +1,109 @@
+specVersion: 0.0.4
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: IntentRegistry
+    network: apothem
+    source:
+      address: "0x20F97dF1A67D11E4edC863245b34ca9EC35e83Bf"
+      abi: IntentRegistry
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.6
+      language: wasm/assemblyscript
+      entities:
+        - Intent
+        - User
+        - Solver
+        - Token
+      abis:
+        - name: IntentRegistry
+          file: ./abis/IntentRegistry.json
+      eventHandlers:
+        - event: IntentCreated(indexed bytes32,indexed address,indexed address,uint256,uint256,uint256)
+          handler: handleIntentCreated
+        - event: IntentFulfilled(indexed bytes32,indexed address,uint256,uint256,uint256)
+          handler: handleIntentFulfilled
+        - event: IntentCancelled(indexed bytes32,indexed address,uint256,uint256)
+          handler: handleIntentCancelled
+        - event: IntentExpired(indexed bytes32,indexed address,uint256,uint256)
+          handler: handleIntentExpired
+      file: ./src/mapping.ts
+  - kind: ethereum
+    name: Escrow
+    network: apothem
+    source:
+      address: "0x32E7Fd003B5f337Ca61dbF6E22FA92EF28BFAB09"
+      abi: Escrow
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.6
+      language: wasm/assemblyscript
+      entities:
+        - EscrowLock
+        - EscrowRelease
+      abis:
+        - name: Escrow
+          file: ./abis/Escrow.json
+      eventHandlers:
+        - event: TokensLocked(indexed bytes32,indexed address,indexed address,uint256)
+          handler: handleTokensLocked
+        - event: TokensReleased(indexed bytes32,indexed address,indexed address,uint256)
+          handler: handleTokensReleased
+        - event: TokensRefunded(indexed bytes32,indexed address,indexed address,uint256)
+          handler: handleTokensRefunded
+      file: ./src/mapping.ts
+  - kind: ethereum
+    name: SolverRegistry
+    network: apothem
+    source:
+      address: "0x9548A14e1fb168C71bDbfD9A2fd4449F0D7A4278"
+      abi: SolverRegistry
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.6
+      language: wasm/assemblyscript
+      entities:
+        - Solver
+      abis:
+        - name: SolverRegistry
+          file: ./abis/SolverRegistry.json
+      eventHandlers:
+        - event: SolverRegistered(indexed address,uint256)
+          handler: handleSolverRegistered
+        - event: SolverDeregistered(indexed address)
+          handler: handleSolverDeregistered
+        - event: SolverSlashed(indexed address,uint256)
+          handler: handleSolverSlashed
+      file: ./src/mapping.ts
+  - kind: ethereum
+    name: BatchAuctionSettlement
+    network: apothem
+    source:
+      address: "0x0000000000000000000000000000000000000000"
+      abi: BatchAuctionSettlement
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.6
+      language: wasm/assemblyscript
+      entities:
+        - Batch
+        - Bid
+      abis:
+        - name: BatchAuctionSettlement
+          file: ./abis/BatchAuctionSettlement.json
+      eventHandlers:
+        - event: BatchCreated(indexed bytes32,bytes32[],uint256)
+          handler: handleBatchCreated
+        - event: BidSubmitted(indexed bytes32,indexed address,uint256)
+          handler: handleBidSubmitted
+        - event: BatchSettled(indexed bytes32,indexed address,uint256)
+          handler: handleBatchSettled
+        - event: BatchCancelled(indexed bytes32)
+          handler: handleBatchCancelled
+      file: ./src/mapping.ts

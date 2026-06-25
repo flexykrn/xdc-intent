@@ -1,0 +1,22 @@
+{
+  "name": "@xdc-intent/subgraph",
+  "version": "1.0.0",
+  "description": "Graph Protocol subgraph for XDC Intent Framework",
+  "main": "src/mapping.ts",
+  "scripts": {
+    "codegen": "graph codegen",
+    "build": "graph build",
+    "deploy": "graph deploy --node https://api.thegraph.com/deploy/ --ipfs https://api.thegraph.com/ipfs/ flexykrn/xdc-intent",
+    "create-local": "graph create --node http://localhost:8020/ flexykrn/xdc-intent",
+    "remove-local": "graph remove --node http://localhost:8020/ flexykrn/xdc-intent",
+    "deploy-local": "graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 flexykrn/xdc-intent",
+    "test": "graph test"
+  },
+  "dependencies": {
+    "@graphprotocol/graph-cli": "^0.60.0",
+    "@graphprotocol/graph-ts": "^0.31.0"
+  },
+  "devDependencies": {
+    "matchstick-as": "^0.5.0"
+  }
+}
