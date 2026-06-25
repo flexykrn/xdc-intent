@@ -12,9 +12,11 @@ export default function SolverPage() {
   const [name, setName] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<any>(null);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     if (!isConnected || !signer) {
       toast.error("Please connect your wallet first");
       return;
@@ -23,13 +25,43 @@ export default function SolverPage() {
     setLoading(true);
     try {
       const registry = new ethers.Contract(CONTRACTS.solverRegistry, SOLVER_REGISTRY_ABI, signer);
-      const tx = await registry.registerSolver(name, endpoint, { value: ethers.parseEther("1") });
+      
+      // Estimate gas first
+      let gasLimit;
+      try {
+        gasLimit = await registry.registerSolver.estimateGas(name, endpoint, { value: ethers.parseEther("1") });
+        gasLimit = (gasLimit * 120n) / 100n; // Add 20% buffer
+      } catch (gasError) {
+        console.warn("Gas estimation failed, using default:", gasError);
+        gasLimit = 500000n;
+      }
+      
+      const tx = await registry.registerSolver(name, endpoint, { 
+        value: ethers.parseEther("1"),
+        gasLimit
+      });
+      
+      toast.loading("Registration pending...", { id: "register" });
       await tx.wait();
-      toast.success("Solver registered successfully!");
+      
+      toast.success("Solver registered successfully!", { id: "register" });
       setName("");
       setEndpoint("");
     } catch (error: any) {
-      toast.error(error.message || "Failed to register solver");
+      setError(error);
+      toast.dismiss("register");
+      
+      // Parse specific errors
+      const reason = error?.reason || error?.message || "";
+      if (reason.includes("insufficient funds")) {
+        toast.error("Insufficient balance. You need 1 XDC for stake + gas fees.");
+      } else if (reason.includes("Already registered")) {
+        toast.error("You are already registered as a solver.");
+      } else if (reason.includes("Stake amount")) {
+        toast.error("Stake amount too low. Minimum is 1 XDC.");
+      } else {
+        toast.error(error.message || "Failed to register solver");
+      }
     } finally {
       setLoading(false);
     }

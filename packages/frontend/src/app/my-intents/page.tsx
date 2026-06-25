@@ -5,17 +5,19 @@ import { useEffect, useState } from "react";
 import { CONTRACTS, provider, INTENT_REGISTRY_ABI } from "@/lib/contracts";
 import { ethers } from "ethers";
 import Link from "next/link";
-import { Clock, CheckCircle, XCircle, ArrowRight, Loader2 } from "lucide-react";
+import { Clock, CheckCircle, XCircle, ArrowRight, Loader2, AlertTriangle } from "lucide-react";
 
 export default function MyIntentsPage() {
   const { address, isConnected } = useWallet();
   const [intents, setIntents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!address) return;
     async function fetchIntents() {
       try {
+        setError(null);
         const registry = new ethers.Contract(CONTRACTS.intentRegistry, INTENT_REGISTRY_ABI, provider);
         const intentIds = await registry.getUserIntents(address);
         const details = await Promise.all(
@@ -29,8 +31,9 @@ export default function MyIntentsPage() {
           })
         );
         setIntents(details.filter(Boolean));
-      } catch (e) {
+      } catch (e: any) {
         console.error("Failed to fetch intents", e);
+        setError(e.message || "Failed to fetch your intents");
       } finally {
         setLoading(false);
       }
@@ -50,6 +53,18 @@ export default function MyIntentsPage() {
   return (
     <div>
       <h1 className="text-3xl font-bold mb-8">My Intents</h1>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-red-600" />
+            <div>
+              <p className="text-red-800 font-medium">Failed to load intents</p>
+              <p className="text-sm text-red-600">{error}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>

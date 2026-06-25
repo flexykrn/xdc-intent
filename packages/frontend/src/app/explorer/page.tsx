@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Filter, ArrowUpDown, Loader2, ExternalLink } from "lucide-react";
+import { Search, Filter, ArrowUpDown, Loader2, ExternalLink, AlertTriangle } from "lucide-react";
 import { CONTRACTS, provider, INTENT_REGISTRY_ABI } from "@/lib/contracts";
 import { ethers } from "ethers";
 
@@ -28,12 +28,14 @@ export default function ExplorerPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [intents, setIntents] = useState<Intent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [totalIntents, setTotalIntents] = useState(0);
   const [totalFulfilled, setTotalFulfilled] = useState(0);
 
   useEffect(() => {
     async function fetchIntents() {
       try {
+        setError(null);
         const registry = new ethers.Contract(
           CONTRACTS.intentRegistry,
           INTENT_REGISTRY_ABI,
@@ -67,8 +69,9 @@ export default function ExplorerPage() {
         }
 
         setIntents(items);
-      } catch (e) {
+      } catch (e: any) {
         console.error("Failed to fetch intents:", e);
+        setError(e.message || "Failed to fetch intents from the blockchain");
       } finally {
         setLoading(false);
       }
@@ -97,6 +100,18 @@ export default function ExplorerPage() {
   return (
     <div>
       <h1 className="text-3xl font-bold mb-8">Intent Explorer</h1>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-red-600" />
+            <div>
+              <p className="text-red-800 font-medium">Failed to load data</p>
+              <p className="text-sm text-red-600">{error}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
