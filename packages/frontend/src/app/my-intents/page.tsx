@@ -1,44 +1,125 @@
 "use client";
 
+import { useEffect, useState, useRef } from "react";
 import { useWallet } from "@/components/providers";
-import { useEffect, useState } from "react";
-import { CONTRACTS, provider, INTENT_REGISTRY_ABI } from "@/lib/contracts";
+import { CONTRACTS, INTENT_REGISTRY_ABI } from "@/lib/contracts";
 import { ethers } from "ethers";
 import Link from "next/link";
-import { Clock, CheckCircle, XCircle, ArrowRight, Loader2, AlertTriangle } from "lucide-react";
+import { Clock, CheckCircle, XCircle, ArrowRight, Loader2, AlertTriangle, Wifi, WifiOff } from "lucide-react";
 
 export default function MyIntentsPage() {
   const { address, isConnected } = useWallet();
   const [intents, setIntents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const WS_RPC_URL = "wss://ws.apothem.network";
+  const HTTP_RPC_URL = "https://rpc.apothem.network";
+
+  async function fetchIntentsViaHTTP() {
+    if (!address) return;
+    try {
+      setError(null);
+      const httpProvider = new ethers.JsonRpcProvider(HTTP_RPC_URL);
+      const registry = new ethers.Contract(CONTRACTS.intentRegistry, INTENT_REGISTRY_ABI, httpProvider);
+      const intentIds = await registry.getUserIntents(address);
+      const details = await Promise.all(
+        intentIds.map(async (id: string) => {
+          try {
+            const intent = await registry.getIntent(id);
+            return { id, intent };
+          } catch {
+            return null;
+          }
+        })
+      );
+      setIntents(details.filter(Boolean));
+      setLastUpdate(new Date());
+    } catch (e: any) {
+      console.error("Failed to fetch intents", e);
+      setError(e.message || "Failed to fetch your intents");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function connectWebSocket() {
+    try {
+      const ws = new WebSocket(WS_RPC_URL);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log("MyIntents WebSocket connected");
+        setWsConnected(true);
+        setError(null);
+        const subscribeMsg = {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "eth_subscribe",
+          params: ["newHeads"],
+        };
+        ws.send(JSON.stringify(subscribeMsg));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.method === "eth_subscription" && data.params?.result) {
+            console.log("New block, refreshing my intents...");
+            fetchIntentsViaHTTP();
+          }
+        } catch (e) {
+          console.error("WebSocket message error:", e);
+        }
+      };
+
+      ws.onerror = () => {
+        setWsConnected(false);
+      };
+
+      ws.onclose = () => {
+        setWsConnected(false);
+        wsRef.current = null;
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+        }
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connectWebSocket();
+        }, 5000);
+      };
+    } catch (e) {
+      setWsConnected(false);
+    }
+  }
 
   useEffect(() => {
-    if (!address) return;
-    async function fetchIntents() {
-      try {
-        setError(null);
-        const registry = new ethers.Contract(CONTRACTS.intentRegistry, INTENT_REGISTRY_ABI, provider);
-        const intentIds = await registry.getUserIntents(address);
-        const details = await Promise.all(
-          intentIds.map(async (id: string) => {
-            try {
-              const intent = await registry.getIntent(id);
-              return { id, intent };
-            } catch {
-              return null;
-            }
-          })
-        );
-        setIntents(details.filter(Boolean));
-      } catch (e: any) {
-        console.error("Failed to fetch intents", e);
-        setError(e.message || "Failed to fetch your intents");
-      } finally {
-        setLoading(false);
-      }
+    if (!address) {
+      setLoading(false);
+      return;
     }
-    fetchIntents();
+
+    fetchIntentsViaHTTP();
+    connectWebSocket();
+
+    const interval = setInterval(() => {
+      if (!wsConnected) {
+        fetchIntentsViaHTTP();
+      }
+    }, 30000);
+
+    return () => {
+      clearInterval(interval);
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+    };
   }, [address]);
 
   if (!isConnected) {
@@ -52,7 +133,25 @@ export default function MyIntentsPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-8">My Intents</h1>
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-3xl font-bold">My Intents</h1>
+        <div className="flex items-center gap-3">
+          {wsConnected ? (
+            <span className="flex items-center gap-1 text-sm text-green-600 bg-green-50 px-3 py-1 rounded-full">
+              <Wifi className="w-4 h-4" /> Live
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-sm text-gray-500 bg-gray-50 px-3 py-1 rounded-full">
+              <WifiOff className="w-4 h-4" /> Polling
+            </span>
+          )}
+          {lastUpdate && (
+            <span className="text-sm text-gray-400">
+              Updated: {lastUpdate.toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+      </div>
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">

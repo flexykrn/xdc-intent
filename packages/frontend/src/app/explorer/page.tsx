@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Search, Filter, ArrowUpDown, Loader2, ExternalLink, AlertTriangle } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Search, Filter, ArrowUpDown, Loader2, ExternalLink, AlertTriangle, Wifi, WifiOff } from "lucide-react";
 import { CONTRACTS, provider, INTENT_REGISTRY_ABI } from "@/lib/contracts";
 import { ethers } from "ethers";
 
@@ -23,6 +23,9 @@ const STATUS_COLORS = [
   "bg-red-50 text-red-700",
 ];
 
+const WS_RPC_URL = "wss://ws.apothem.network";
+const HTTP_RPC_URL = "https://rpc.apothem.network";
+
 export default function ExplorerPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -31,55 +34,141 @@ export default function ExplorerPage() {
   const [error, setError] = useState<string | null>(null);
   const [totalIntents, setTotalIntents] = useState(0);
   const [totalFulfilled, setTotalFulfilled] = useState(0);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // HTTP fallback for initial load and periodic sync
+  async function fetchIntentsViaHTTP() {
+    try {
+      setError(null);
+      const httpProvider = new ethers.JsonRpcProvider(HTTP_RPC_URL);
+      const registry = new ethers.Contract(
+        CONTRACTS.intentRegistry,
+        INTENT_REGISTRY_ABI,
+        httpProvider
+      );
+
+      const total = await registry.getTotalIntents();
+      const fulfilled = await registry.getTotalIntentsFulfilled();
+      setTotalIntents(Number(total));
+      setTotalFulfilled(Number(fulfilled));
+
+      const items: Intent[] = [];
+      const count = Math.min(Number(total), 20);
+
+      for (let i = 0; i < count; i++) {
+        try {
+          const intentId = await registry.intentList(i);
+          const intent = await registry.getIntent(intentId);
+          items.push({
+            id: intentId,
+            creator: intent[1],
+            token: intent[2],
+            amount: ethers.formatEther(intent[4]),
+            status: Number(intent[7]),
+            expiryTimestamp: Number(intent[5]),
+            protocolFee: ethers.formatEther(intent[6]),
+          });
+        } catch (e) {
+          console.error(`Failed to fetch intent ${i}:`, e);
+        }
+      }
+
+      setIntents(items);
+      setLastUpdate(new Date());
+    } catch (e: any) {
+      console.error("Failed to fetch intents:", e);
+      setError(e.message || "Failed to fetch intents from the blockchain");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // WebSocket connection for real-time updates
+  function connectWebSocket() {
+    try {
+      const ws = new WebSocket(WS_RPC_URL);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log("WebSocket connected");
+        setWsConnected(true);
+        setError(null);
+
+        // Subscribe to new blocks
+        const subscribeMsg = {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "eth_subscribe",
+          params: ["newHeads"],
+        };
+        ws.send(JSON.stringify(subscribeMsg));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          // New block received - refresh intents
+          if (data.method === "eth_subscription" && data.params?.result) {
+            console.log("New block received, refreshing intents...");
+            fetchIntentsViaHTTP();
+          }
+        } catch (e) {
+          console.error("WebSocket message error:", e);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error);
+        setWsConnected(false);
+      };
+
+      ws.onclose = () => {
+        console.log("WebSocket disconnected");
+        setWsConnected(false);
+        wsRef.current = null;
+
+        // Reconnect after 5 seconds
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+        }
+        reconnectTimeoutRef.current = setTimeout(() => {
+          console.log("Attempting WebSocket reconnect...");
+          connectWebSocket();
+        }, 5000);
+      };
+    } catch (e) {
+      console.error("Failed to connect WebSocket:", e);
+      setWsConnected(false);
+    }
+  }
 
   useEffect(() => {
-    async function fetchIntents() {
-      try {
-        setError(null);
-        const registry = new ethers.Contract(
-          CONTRACTS.intentRegistry,
-          INTENT_REGISTRY_ABI,
-          provider
-        );
+    // Initial load via HTTP
+    fetchIntentsViaHTTP();
 
-        const total = await registry.getTotalIntents();
-        const fulfilled = await registry.getTotalIntentsFulfilled();
-        setTotalIntents(Number(total));
-        setTotalFulfilled(Number(fulfilled));
+    // Try WebSocket connection
+    connectWebSocket();
 
-        const items: Intent[] = [];
-        const count = Math.min(Number(total), 20);
-
-        for (let i = 0; i < count; i++) {
-          try {
-            const intentId = await registry.intentList(i);
-            const intent = await registry.getIntent(intentId);
-            items.push({
-              id: intentId,
-              creator: intent[1],
-              token: intent[2],
-              amount: ethers.formatEther(intent[4]),
-              status: Number(intent[7]),
-              expiryTimestamp: Number(intent[5]),
-              protocolFee: ethers.formatEther(intent[6]),
-            });
-          } catch (e) {
-            console.error(`Failed to fetch intent ${i}:`, e);
-          }
-        }
-
-        setIntents(items);
-      } catch (e: any) {
-        console.error("Failed to fetch intents:", e);
-        setError(e.message || "Failed to fetch intents from the blockchain");
-      } finally {
-        setLoading(false);
+    // Periodic HTTP sync as fallback (every 30 seconds)
+    const interval = setInterval(() => {
+      if (!wsConnected) {
+        fetchIntentsViaHTTP();
       }
-    }
+    }, 30000);
 
-    fetchIntents();
-    const interval = setInterval(fetchIntents, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+    };
   }, []);
 
   const filteredIntents = intents.filter((intent) => {
@@ -99,7 +188,25 @@ export default function ExplorerPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-8">Intent Explorer</h1>
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-3xl font-bold">Intent Explorer</h1>
+        <div className="flex items-center gap-3">
+          {wsConnected ? (
+            <span className="flex items-center gap-1 text-sm text-green-600 bg-green-50 px-3 py-1 rounded-full">
+              <Wifi className="w-4 h-4" /> Live
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-sm text-gray-500 bg-gray-50 px-3 py-1 rounded-full">
+              <WifiOff className="w-4 h-4" /> Polling
+            </span>
+          )}
+          {lastUpdate && (
+            <span className="text-sm text-gray-400">
+              Updated: {lastUpdate.toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+      </div>
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
