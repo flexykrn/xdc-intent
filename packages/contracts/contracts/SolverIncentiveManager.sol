@@ -93,7 +93,7 @@ contract SolverIncentiveManager is Ownable, ReentrancyGuard {
     
     // ============ Constructor ============
     
-    constructor(address _solverRegistry) Ownable(msg.sender) {
+    constructor(address _solverRegistry) Ownable() {
         solverRegistry = SolverRegistry(_solverRegistry);
         
         rewardPool = RewardPool({
@@ -335,6 +335,10 @@ contract SolverIncentiveManager is Ownable, ReentrancyGuard {
     }
     
     receive() external payable {
-        fundRewardPool();
+        // Auto-fund reward pool on direct payment
+        if (msg.value > 0) {
+            rewardPool.totalRewards += msg.value;
+            emit RewardPoolFunded(msg.value, rewardPool.rewardPerIntent);
+        }
     }
 }
