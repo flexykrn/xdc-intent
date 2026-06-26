@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Home, PlusCircle, List, Globe, Cpu } from "lucide-react";
+import { Home, PlusCircle, List, Globe, Cpu, Award, Puzzle, TrendingDown, Link2 } from "lucide-react";
 import WalletButton from "./WalletButton";
 
 export function Navbar() {
@@ -22,6 +22,11 @@ export function Navbar() {
             <NavLink href="/my-intents" icon={<List className="w-5 h-5" />} label="My Intents" />
             <NavLink href="/explorer" icon={<Globe className="w-5 h-5" />} label="Explorer" />
             <NavLink href="/solver" icon={<Cpu className="w-5 h-5" />} label="Solver" />
+            <div className="w-px h-6 bg-gray-300 mx-1" />
+            <NavLink href="/solver-incentives" icon={<Award className="w-5 h-5" />} label="Incentives" />
+            <NavLink href="/partial-fill" icon={<Puzzle className="w-5 h-5" />} label="Partial" />
+            <NavLink href="/dutch-auction" icon={<TrendingDown className="w-5 h-5" />} label="Auction" />
+            <NavLink href="/cross-chain" icon={<Link2 className="w-5 h-5" />} label="Bridge" />
           </nav>
 
           <div className="flex items-center gap-3">

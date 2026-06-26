@@ -143,9 +143,9 @@ export default function CreateIntentPage() {
       const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
       const [symbol, balance, decimals, allowed] = await Promise.all([
         tokenContract.symbol().catch(() => "???"),
-        tokenContract.balanceOf(address).catch(() => 0n),
+        tokenContract.balanceOf(address).catch(() => 0),
         tokenContract.decimals().catch(() => 18),
-        tokenContract.allowance(address, CONTRACTS.intentRegistry).catch(() => 0n),
+        tokenContract.allowance(address, CONTRACTS.intentRegistry).catch(() => 0),
       ]);
 
       setTokenSymbol(symbol);
@@ -246,10 +246,11 @@ export default function CreateIntentPage() {
       let gasLimit;
       try {
         gasLimit = await registry.createIntent.estimateGas(intentId, token, amountWei, expiryTimestamp);
-        gasLimit = (gasLimit * 120n) / 100n; // Add 20% buffer
+        gasLimit = Number(gasLimit);
+        gasLimit = (gasLimit * 120) / 100; // Add 20% buffer
       } catch (gasError) {
         console.warn("Gas estimation failed, using default:", gasError);
-        gasLimit = 500000n; // Default gas limit
+        gasLimit = 500000; // Default gas limit
       }
       
       const tx = await registry.createIntent(intentId, token, amountWei, expiryTimestamp, {

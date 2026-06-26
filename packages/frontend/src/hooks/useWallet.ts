@@ -37,11 +37,11 @@ let EthereumProvider: any = null;
 async function loadWalletConnect() {
   if (!EthereumProvider) {
     try {
+      // @ts-ignore - optional dependency
       const mod = await import("@walletconnect/ethereum-provider");
       EthereumProvider = mod.default;
     } catch (error) {
-      console.warn("@walletconnect/ethereum-provider not installed. Install with: npm install @walletconnect/ethereum-provider");
-      throw new Error("WalletConnect not available. Please install @walletconnect/ethereum-provider");
+      console.warn("@walletconnect/ethereum-provider not installed");
     }
   }
   return EthereumProvider;

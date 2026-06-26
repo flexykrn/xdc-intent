@@ -30,10 +30,11 @@ export default function SolverPage() {
       let gasLimit;
       try {
         gasLimit = await registry.registerSolver.estimateGas(name, endpoint, { value: ethers.parseEther("1") });
-        gasLimit = (gasLimit * 120n) / 100n; // Add 20% buffer
+        gasLimit = Number(gasLimit);
+        gasLimit = (gasLimit * 120) / 100; // Add 20% buffer
       } catch (gasError) {
         console.warn("Gas estimation failed, using default:", gasError);
-        gasLimit = 500000n;
+        gasLimit = 500000;
       }
       
       const tx = await registry.registerSolver(name, endpoint, { 
