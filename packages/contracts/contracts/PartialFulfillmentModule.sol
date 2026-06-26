@@ -70,7 +70,7 @@ contract PartialFulfillmentModule is Ownable, ReentrancyGuard {
     
     modifier validIntent(bytes32 intentId) {
         require(
-            intentRegistry.getIntentStatus(intentId) == 0,
+            intentRegistry.isIntentPending(intentId),
             "Intent not pending"
         );
         _;
@@ -78,7 +78,7 @@ contract PartialFulfillmentModule is Ownable, ReentrancyGuard {
     
     // ============ Constructor ============
     
-    constructor(address _intentRegistry, address _escrow) Ownable(msg.sender) {
+    constructor(address _intentRegistry, address _escrow) Ownable() {
         intentRegistry = IntentRegistry(_intentRegistry);
         escrow = Escrow(_escrow);
     }
@@ -97,7 +97,7 @@ contract PartialFulfillmentModule is Ownable, ReentrancyGuard {
         uint256 maxFillAmount
     ) external validIntent(intentId) {
         // Only intent creator can configure
-        (address creator,,,,,,) = intentRegistry.getIntent(intentId);
+        address creator = intentRegistry.getIntentCreator(intentId);
         require(msg.sender == creator, "Only intent creator");
         
         require(minFillAmount >= MIN_PARTITION_SIZE, "Min fill too small");
@@ -127,7 +127,7 @@ contract PartialFulfillmentModule is Ownable, ReentrancyGuard {
         // If not configured, use defaults
         if (partition.maxFillAmount == 0) {
             // Get intent details and set defaults
-            (,,, uint256 amount,,,) = intentRegistry.getIntent(intentId);
+            uint256 amount = intentRegistry.getIntentAmount(intentId);
             partition.minFillAmount = MIN_PARTITION_SIZE;
             partition.maxFillAmount = amount / 2; // Max 50% per fill
         }
@@ -142,7 +142,7 @@ contract PartialFulfillmentModule is Ownable, ReentrancyGuard {
         );
         
         // Check remaining amount
-        (,,, uint256 totalAmount,,,) = intentRegistry.getIntent(intentId);
+        uint256 totalAmount = intentRegistry.getIntentAmount(intentId);
         uint256 alreadyFilled = totalFilledAmount[intentId];
         uint256 remaining = totalAmount - alreadyFilled;
         
@@ -196,7 +196,7 @@ contract PartialFulfillmentModule is Ownable, ReentrancyGuard {
         uint256 percentage
     ) {
         filled = totalFilledAmount[intentId];
-        (,,, total,,,) = intentRegistry.getIntent(intentId);
+        uint256 total = intentRegistry.getIntentAmount(intentId);
         percentage = total > 0 ? (filled * 100) / total : 0;
     }
     
@@ -204,7 +204,7 @@ contract PartialFulfillmentModule is Ownable, ReentrancyGuard {
      * @notice Check if intent is partially fillable
      */
     function isPartiallyFillable(bytes32 intentId) external view returns (bool) {
-        return intentRegistry.getIntentStatus(intentId) == 0 &&
+        return intentRegistry.isIntentPending(intentId) &&
                totalFilledAmount[intentId] > 0;
     }
     

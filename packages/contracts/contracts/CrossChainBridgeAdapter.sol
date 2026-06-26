@@ -85,7 +85,7 @@ contract CrossChainBridgeAdapter is Ownable, ReentrancyGuard {
     
     modifier validIntent(bytes32 intentId) {
         require(
-            intentRegistry.getIntentStatus(intentId) == 0,
+            intentRegistry.isIntentPending(intentId),
             "Intent not pending"
         );
         _;
@@ -93,7 +93,7 @@ contract CrossChainBridgeAdapter is Ownable, ReentrancyGuard {
     
     // ============ Constructor ============
     
-    constructor(address _intentRegistry, address _escrow) Ownable(msg.sender) {
+    constructor(address _intentRegistry, address _escrow) Ownable() {
         intentRegistry = IntentRegistry(_intentRegistry);
         escrow = Escrow(_escrow);
     }
@@ -137,7 +137,9 @@ contract CrossChainBridgeAdapter is Ownable, ReentrancyGuard {
         address targetToken,
         address targetSolver
     ) external onlySupportedChain(targetChainId) validIntent(intentId) {
-        (address creator, address sourceToken,, uint256 amount,,,) = intentRegistry.getIntent(intentId);
+        address creator = intentRegistry.getIntentCreator(intentId);
+        address sourceToken = intentRegistry.getIntent(intentId).token;
+        uint256 amount = intentRegistry.getIntentAmount(intentId);
         require(msg.sender == creator, "Only intent creator");
         
         BridgeConfig storage config = bridgeConfigs[targetChainId];

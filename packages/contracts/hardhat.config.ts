@@ -45,7 +45,7 @@ const config: HardhatUserConfig = {
     },
     apothem: {
       chainId: 51,
-      url: process.env.XDC_TESTNET_RPC || 'https://erpc.apothem.network',
+      url: 'https://rpc.apothem.network',
       accounts: process.env.DEPLOYER_PRIVATE_KEY && process.env.DEPLOYER_PRIVATE_KEY !== '0x...'
         ? [process.env.DEPLOYER_PRIVATE_KEY]
         : [],

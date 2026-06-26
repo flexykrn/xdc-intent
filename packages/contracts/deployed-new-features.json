@@ -1,4 +1,11 @@
 {
   "deployer": "0x8916DD1311c17aD008bB56bE3378E001a92e4375",
-  "deployedAt": "2026-06-25T15:15:35.041Z"
+  "deployedAt": "2026-06-26T06:30:00.000Z",
+  "solverIncentiveManager": "0x9F826BFaF6A56790167060e24c5a4A08b4574a28",
+  "partialFulfillmentModule": "0x62253677e5921C5f31b52cbEC3B2cFA9faD6e040",
+  "dutchAuctionRFQ": "0x895E5Be8ABe8E2fc2a084A0f69b02f2AE7A6208A",
+  "crossChainBridgeAdapter": "0x27bA190dF1C7B08d60c5b3620aE4fb8D25df6b20",
+  "upgradeableRegistry": "PENDING - Network timeout",
+  "proxyAdmin": "PENDING - Network timeout",
+  "upgradeableRegistryProxy": "PENDING - Network timeout"
 }

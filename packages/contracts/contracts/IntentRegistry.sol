@@ -488,4 +488,18 @@ contract IntentRegistry is Ownable, Pausable, ReentrancyGuard {
             uint8(intent.status)
         );
     }
+    
+    /**
+     * @notice Get intent creator (for backward compatibility)
+     */
+    function getIntentCreator(bytes32 intentId) external view returns (address) {
+        return intents[intentId].user;
+    }
+    
+    /**
+     * @notice Get intent amount (for backward compatibility)
+     */
+    function getIntentAmount(bytes32 intentId) external view returns (uint256) {
+        return intents[intentId].amount;
+    }
 }

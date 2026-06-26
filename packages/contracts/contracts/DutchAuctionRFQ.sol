@@ -88,21 +88,21 @@ contract DutchAuctionRFQ is Ownable, ReentrancyGuard {
     
     modifier validIntent(bytes32 intentId) {
         require(
-            intentRegistry.getIntentStatus(intentId) == 0,
+            intentRegistry.isIntentPending(intentId),
             "Intent not pending"
         );
         _;
     }
     
     modifier onlyIntentCreator(bytes32 intentId) {
-        (address creator,,,,,,) = intentRegistry.getIntent(intentId);
+        address creator = intentRegistry.getIntentCreator(intentId);
         require(msg.sender == creator, "Only intent creator");
         _;
     }
     
     // ============ Constructor ============
     
-    constructor(address _intentRegistry) Ownable(msg.sender) {
+    constructor(address _intentRegistry) Ownable() {
         intentRegistry = IntentRegistry(_intentRegistry);
     }
     

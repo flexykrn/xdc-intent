@@ -11,7 +11,9 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  * @dev Uses OpenZeppelin's TransparentUpgradeableProxy pattern
  */
 contract IntentProxyAdmin is ProxyAdmin {
-    constructor(address initialOwner) ProxyAdmin(initialOwner) {}
+    constructor(address initialOwner) ProxyAdmin() {
+        transferOwnership(initialOwner);
+    }
 }
 
 /**
