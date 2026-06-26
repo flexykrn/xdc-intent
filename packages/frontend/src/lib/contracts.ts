@@ -18,8 +18,9 @@ export const CONTRACTS = {
   // Newly deployed (June 26)
   solverIncentiveManager: "0x9F826BFaF6A56790167060e24c5a4A08b4574a28",
   partialFulfillmentModule: "0x62253677e5921C5f31b52cbEC3B2cFA9faD6e040",
-  dutchAuctionRFQ: "0x895E5Be8ABe8E2fc2a084A0f69b02f2AE7A6208A",
-  crossChainBridgeAdapter: "0x27bA190dF1C7B08d60c5b3620aE4fb8D25df6b20",
+  dutchAuctionRFQ: "0x77Ea5E57168E75cA54Cac4A545e0c0B733cA2732",
+  crossChainBridgeAdapter: "0xa2514ad585640902F156d56748b9A7FcAAdD564D",
+  upgradeableRegistryProxy: "0x20ACA4dCdB2c2B86Bf6f3A0afaDE41AbA825fFc7",
 };
 
 export const RPC_URL = "https://apothem.xdcrpc.com";
