@@ -1,418 +1,332 @@
 "use client";
 
 import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { ChevronDown, ArrowDown, Wallet, AlertCircle, CheckCircle, Zap, Clock, Info } from "lucide-react";
 import { useWallet } from "@/components/providers";
 import { ethers } from "ethers";
-import { CONTRACTS, INTENT_REGISTRY_ABI, ERC20_ABI } from "@/lib/contracts";
-import { ArrowRight, Loader2, CheckCircle, AlertTriangle, Info } from "lucide-react";
+import { CONTRACTS, INTENT_REGISTRY_ABI } from "@/lib/contracts";
 import toast from "react-hot-toast";
+import { useRouter } from "next/navigation";
 
-// Error parsing utilities
-function parseRevertError(error: any): { title: string; message: string; action: string } {
-  const reason = error?.reason || error?.message || "";
-  const code = error?.code || "";
-  
-  // User rejected transaction
-  if (code === "ACTION_REJECTED" || reason.includes("user rejected")) {
-    return {
-      title: "Transaction Rejected",
-      message: "You rejected the transaction in your wallet.",
-      action: "Try again when ready."
-    };
-  }
-  
-  // Insufficient balance
-  if (reason.includes("insufficient funds") || reason.includes("Insufficient balance")) {
-    return {
-      title: "Insufficient Balance",
-      message: "You don't have enough tokens for this transaction.",
-      action: "Add more funds to your wallet or reduce the amount."
-    };
-  }
-  
-  // Allowance too low
-  if (reason.includes("allowance") || reason.includes("ERC20: transfer amount exceeds allowance")) {
-    return {
-      title: "Approval Required",
-      message: "The IntentRegistry doesn't have permission to spend your tokens.",
-      action: "Approve the token first before creating the intent."
-    };
-  }
-  
-  // Gas estimation failed
-  if (reason.includes("gas required exceeds allowance") || reason.includes("cannot estimate gas")) {
-    return {
-      title: "Gas Estimation Failed",
-      message: "The transaction may fail. Check your inputs and balance.",
-      action: "Ensure you have enough XDC for gas fees."
-    };
-  }
-  
-  // Network errors
-  if (reason.includes("network") || reason.includes("timeout") || reason.includes("ECONNREFUSED")) {
-    return {
-      title: "Network Error",
-      message: "Failed to connect to the XDC network.",
-      action: "Check your internet connection and try again."
-    };
-  }
-  
-  // Intent already exists
-  if (reason.includes("Intent already exists")) {
-    return {
-      title: "Intent Already Exists",
-      message: "An intent with this ID already exists.",
-      action: "Try again with different parameters."
-    };
-  }
-  
-  // Expired
-  if (reason.includes("expired") || reason.includes("deadline")) {
-    return {
-      title: "Intent Expired",
-      message: "The intent has expired or the deadline has passed.",
-      action: "Create a new intent with a longer expiry."
-    };
-  }
-  
-  // Generic fallback
-  return {
-    title: "Transaction Failed",
-    message: reason.length > 100 ? reason.slice(0, 100) + "..." : reason,
-    action: "Check your inputs and try again."
-  };
-}
-
-// Error display component
-function ErrorDisplay({ error, onDismiss }: { error: any; onDismiss: () => void }) {
-  const parsed = parseRevertError(error);
-  
-  return (
-    <div className="bg-red-50 border border-red-200 rounded-xl p-6 mb-6">
-      <div className="flex items-start gap-3">
-        <AlertTriangle className="w-6 h-6 text-red-600 mt-0.5 flex-shrink-0" />
-        <div className="flex-1">
-          <h3 className="text-lg font-semibold text-red-800 mb-1">{parsed.title}</h3>
-          <p className="text-red-700 mb-2">{parsed.message}</p>
-          <p className="text-sm text-red-600">
-            <Info className="w-4 h-4 inline mr-1" />
-            {parsed.action}
-          </p>
-        </div>
-        <button onClick={onDismiss} className="text-red-400 hover:text-red-600">
-          ✕
-        </button>
-      </div>
-    </div>
-  );
-}
-
-const TOKEN_OPTIONS = [
-  { address: "0x148D54159656D8D8c36240c7cD73ce80e239e137", symbol: "MOCK", name: "Mock Token" },
-  { address: "0x0000000000000000000000000000000000000000", symbol: "XDC", name: "XDC Native" },
+const expiryOptions = [
+  { label: "1 hour", value: "1h", seconds: 3600 },
+  { label: "6 hours", value: "6h", seconds: 21600 },
+  { label: "24 hours", value: "24h", seconds: 86400 },
+  { label: "3 days", value: "3d", seconds: 259200 },
 ];
 
-export default function CreateIntentPage() {
+const tokens = [
+  { symbol: "XDC", name: "XDC Network", icon: "⚡", address: "0x0000000000000000000000000000000000000000", balance: 12345.67 },
+  { symbol: "MOCK", name: "Mock Token", icon: "🪙", address: "0x1111111111111111111111111111111111111111", balance: 5000 },
+  { symbol: "USDC", name: "USD Coin", icon: "💲", address: "0x2222222222222222222222222222222222222222", balance: 2500 },
+];
+
+export default function CreatePage() {
   const { isConnected, signer, address } = useWallet();
-  const [token, setToken] = useState("");
-  const [amount, setAmount] = useState("");
+  const router = useRouter();
+  const [fromToken, setFromToken] = useState(tokens[0]);
+  const [toToken, setToToken] = useState(tokens[2]);
+  const [fromAmount, setFromAmount] = useState("");
   const [minOutput, setMinOutput] = useState("");
-  const [expiry, setExpiry] = useState("1");
-  const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<"form" | "approve" | "submit">("form");
-  const [tokenBalance, setTokenBalance] = useState("0");
-  const [tokenSymbol, setTokenSymbol] = useState("");
-  const [allowance, setAllowance] = useState("0");
-  const [error, setError] = useState<any>(null);
-  const [txHash, setTxHash] = useState<string | null>(null);
+  const [expiry, setExpiry] = useState("24h");
+  const [showFromDropdown, setShowFromDropdown] = useState(false);
+  const [showToDropdown, setShowToDropdown] = useState(false);
+  const [showExpiryDropdown, setShowExpiryDropdown] = useState(false);
+  const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleTokenChange = async (tokenAddress: string) => {
-    setToken(tokenAddress);
-    setError(null);
-    if (!signer || !address) return;
-
-    try {
-      if (tokenAddress === "0x0000000000000000000000000000000000000000") {
-        setTokenSymbol("XDC");
-        const balance = await signer.provider.getBalance(address);
-        setTokenBalance(ethers.formatEther(balance));
-        setAllowance("999999999");
-        return;
-      }
-
-      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
-      const [symbol, balance, decimals, allowed] = await Promise.all([
-        tokenContract.symbol().catch(() => "???"),
-        tokenContract.balanceOf(address).catch(() => 0),
-        tokenContract.decimals().catch(() => 18),
-        tokenContract.allowance(address, CONTRACTS.intentRegistry).catch(() => 0),
-      ]);
-
-      setTokenSymbol(symbol);
-      setTokenBalance(ethers.formatUnits(balance, decimals));
-      setAllowance(ethers.formatUnits(allowed, decimals));
-    } catch (error) {
-      console.error("Failed to load token info:", error);
-      setTokenSymbol("???");
-      setTokenBalance("0");
-      setAllowance("0");
-    }
-  };
-
-  const handleApprove = async () => {
-    if (!signer || !token) return;
-
-    setLoading(true);
-    setError(null);
-    setTxHash(null);
-    try {
-      if (token === "0x0000000000000000000000000000000000000000") {
-        setStep("submit");
-        return;
-      }
-
-      const tokenContract = new ethers.Contract(token, ERC20_ABI, signer);
-      const amountWei = ethers.parseEther(amount);
-      const tx = await tokenContract.approve(CONTRACTS.intentRegistry, amountWei);
-      
-      setTxHash(tx.hash);
-      toast.loading("Approval pending...", { id: "approve" });
-      
-      await tx.wait();
-
-      toast.success("Token approved successfully!", { id: "approve" });
-      setAllowance(amount);
-      setStep("submit");
-    } catch (error: any) {
-      setError(error);
-      toast.dismiss("approve");
-      const parsed = parseRevertError(error);
-      toast.error(parsed.title);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setTxHash(null);
-    
-    if (!isConnected || !signer) {
+  const handleCreateIntent = async () => {
+    if (!isConnected || !signer || !address) {
       toast.error("Please connect your wallet first");
       return;
     }
-
-    if (!token || !amount) {
-      toast.error("Please fill in all fields");
+    if (!fromAmount || parseFloat(fromAmount) <= 0) {
+      setStatus("error");
+      setTimeout(() => setStatus("idle"), 3000);
       return;
     }
 
-    // Validate amount
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      toast.error("Amount must be greater than 0");
-      return;
-    }
-
-    const balanceNum = parseFloat(tokenBalance);
-    if (amountNum > balanceNum) {
-      toast.error(`Insufficient balance. You have ${balanceNum.toFixed(4)} ${tokenSymbol}`);
-      return;
-    }
-
-    const amountWei = ethers.parseEther(amount);
-    const currentAllowance = ethers.parseEther(allowance || "0");
-
-    if (currentAllowance < amountWei && token !== "0x0000000000000000000000000000000000000000") {
-      setStep("approve");
-      return;
-    }
-
-    setLoading(true);
+    setIsSubmitting(true);
     try {
-      const intentId = ethers.keccak256(
-        ethers.AbiCoder.defaultAbiCoder().encode(
-          ["address", "address", "uint256", "uint256", "uint256"],
-          [address, token, amountWei, ethers.parseEther(minOutput || "0"), Math.floor(Date.now() / 1000)]
-        )
-      );
-
-      const expiryTimestamp = Math.floor(Date.now() / 1000) + parseInt(expiry) * 3600;
-
       const registry = new ethers.Contract(CONTRACTS.intentRegistry, INTENT_REGISTRY_ABI, signer);
-      
-      // Estimate gas first
-      let gasLimit;
-      try {
-        gasLimit = await registry.createIntent.estimateGas(intentId, token, amountWei, expiryTimestamp);
-        gasLimit = Number(gasLimit);
-        gasLimit = (gasLimit * 120) / 100; // Add 20% buffer
-      } catch (gasError) {
-        console.warn("Gas estimation failed, using default:", gasError);
-        gasLimit = 500000; // Default gas limit
-      }
-      
-      const tx = await registry.createIntent(intentId, token, amountWei, expiryTimestamp, {
-        gasLimit
-      });
-      
-      setTxHash(tx.hash);
-      toast.loading("Creating intent...", { id: "create" });
-      
-      await tx.wait();
+      const intentId = ethers.keccak256(ethers.toUtf8Bytes(`${address}-${Date.now()}`));
+      const amountWei = ethers.parseEther(fromAmount);
+      const expirySeconds = expiryOptions.find((o) => o.value === expiry)?.seconds || 86400;
+      const expiryTimestamp = Math.floor(Date.now() / 1000) + expirySeconds;
 
-      toast.success("Intent created successfully!", { id: "create" });
-      setToken("");
-      setAmount("");
+      const tx = await registry.createIntent(intentId, fromToken.address, amountWei, expiryTimestamp, {
+        value: fromToken.address === "0x0000000000000000000000000000000000000000" ? amountWei : 0,
+      });
+      toast.loading("Creating intent...", { id: "create" });
+      await tx.wait();
+      toast.success("Intent created successfully", { id: "create" });
+      setStatus("success");
+      setFromAmount("");
       setMinOutput("");
-      setStep("form");
-      setTokenBalance("0");
-      setAllowance("0");
-    } catch (error: any) {
-      setError(error);
-      toast.dismiss("create");
-      const parsed = parseRevertError(error);
-      toast.error(parsed.title);
+      setTimeout(() => {
+        setStatus("idle");
+        router.push("/my-intents");
+      }, 2000);
+    } catch (e: any) {
+      console.error("Create intent failed", e);
+      toast.error(e?.reason || e?.message || "Failed to create intent", { id: "create" });
+      setStatus("error");
+      setTimeout(() => setStatus("idle"), 3000);
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <h1 className="text-3xl font-bold mb-8">Create Intent</h1>
-
-      {!isConnected && (
-        <div className="bg-blue-50 rounded-xl p-8 shadow-sm border border-blue-200 mb-6 text-center">
-          <p className="text-blue-700 mb-4">Connect your wallet to create intents</p>
-          <p className="text-sm text-blue-600">
-            You need a Web3 wallet like MetaMask or WalletConnect to interact with the XDC network.
-          </p>
-        </div>
-      )}
-
-      {error && <ErrorDisplay error={error} onDismiss={() => setError(null)} />}
-
-      {txHash && !error && (
-        <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6">
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-5 h-5 text-green-600" />
-            <div>
-              <p className="text-green-800 font-medium">Transaction submitted!</p>
-              <a 
-                href={`https://apothem.blocksscan.io/tx/${txHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-green-600 hover:underline"
-              >
-                View on explorer → {txHash.slice(0, 10)}...{txHash.slice(-8)}
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {step === "approve" && (
-        <div className="bg-yellow-50 rounded-xl p-6 shadow-sm border border-yellow-200 mb-6">
-          <h3 className="text-lg font-semibold text-yellow-800 mb-2">Approval Required</h3>
-          <p className="text-yellow-700 mb-4">
-            You need to approve the IntentRegistry to spend {amount} {tokenSymbol} on your behalf.
-          </p>
-          <div className="text-sm text-yellow-600 mb-4">
-            <Info className="w-4 h-4 inline mr-1" />
-            This is a one-time approval per token. Future intents won't need this step.
-          </div>
-          <button
-            onClick={handleApprove}
-            disabled={loading}
-            className="bg-yellow-600 text-white px-6 py-2 rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50"
-          >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Approve Token"}
-          </button>
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl p-6 shadow-sm border border-gray-200 space-y-6">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Token</label>
-          <select
-            value={token}
-            onChange={(e) => handleTokenChange(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            required
-            disabled={!isConnected || loading}
-          >
-            <option value="">Select a token</option>
-            {TOKEN_OPTIONS.map((t) => (
-              <option key={t.address} value={t.address}>
-                {t.symbol} - {t.name}
-              </option>
-            ))}
-          </select>
-          {token && (
-            <p className="text-sm text-gray-500 mt-1">
-              Balance: {parseFloat(tokenBalance).toFixed(4)} {tokenSymbol}
-              {parseFloat(allowance) > 0 && (
-                <span className="text-green-600 ml-2">
-                  <CheckCircle className="w-4 h-4 inline" /> Approved
-                </span>
-              )}
+    <div className="relative z-10 min-h-screen pt-32 pb-20 px-5 sm:px-8 lg:px-10">
+      <div className="max-w-[1200px] mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-10 items-start">
+          <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="lg:col-span-2">
+            <div className="font-mono text-[11px] tracking-[0.2em] uppercase text-[var(--accent)] mb-4">Create Intent</div>
+            <h1 className="text-[clamp(36px,4vw,56px)] font-semibold leading-[1.05] tracking-[-0.03em] text-[var(--ink)] mb-6">
+              Define your
+              <br />
+              <span className="text-gradient">swap.</span>
+            </h1>
+            <p className="text-lg text-[var(--ink-2)] leading-relaxed mb-10">
+              Set the token you want to spend, the minimum you expect back, and how long solvers have to fill it.
             </p>
-          )}
-        </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Amount</label>
-          <input
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="100"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            required
-            disabled={!isConnected || loading}
-          />
-        </div>
+            <div className="space-y-3">
+              {[
+                { icon: <Zap size={18} />, title: "Competitive pricing", desc: "Multiple solvers bid to fill your intent" },
+                { icon: <Clock size={18} />, title: "Expiry protection", desc: "Intent auto-expires if not filled in time" },
+                { icon: <Info size={18} />, title: "Transparent fees", desc: "Protocol fee is 0.05% on filled intents" },
+              ].map((item) => (
+                <div key={item.title} className="flex items-start gap-4 p-4 rounded-2xl surface">
+                  <div className="text-[var(--accent)] mt-0.5">{item.icon}</div>
+                  <div>
+                    <div className="text-sm font-semibold text-[var(--ink)]">{item.title}</div>
+                    <div className="text-xs text-[var(--ink-3)]">{item.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Minimum Output</label>
-          <input
-            type="number"
-            value={minOutput}
-            onChange={(e) => setMinOutput(e.target.value)}
-            placeholder="99"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            required
-            disabled={!isConnected || loading}
-          />
-        </div>
+          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 }} className="lg:col-span-3">
+            <div className="rounded-3xl p-6 sm:p-8 surface">
+              {!isConnected && (
+                <div className="p-5 rounded-2xl mb-6 surface-subtle">
+                  <div className="flex items-center gap-3">
+                    <Wallet size={20} className="text-[var(--accent)]" />
+                    <p className="text-sm text-[var(--ink-2)]">Connect your wallet to create an intent.</p>
+                  </div>
+                </div>
+              )}
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Expiry (hours)</label>
-          <select
-            value={expiry}
-            onChange={(e) => setExpiry(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            disabled={!isConnected || loading}
-          >
-            <option value="1">1 hour</option>
-            <option value="6">6 hours</option>
-            <option value="24">24 hours</option>
-            <option value="72">3 days</option>
-          </select>
-        </div>
+              <div className="mb-2">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-medium text-[var(--ink-3)]">You send</label>
+                  <span className="text-xs flex items-center gap-1.5 text-[var(--ink-3)] font-mono">
+                    <Wallet size={12} />
+                    {fromToken.balance.toLocaleString()} {fromToken.symbol}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 p-4 rounded-2xl surface-subtle">
+                  <div className="relative">
+                    <motion.button
+                      onClick={() => { setShowFromDropdown(!showFromDropdown); setShowToDropdown(false); setShowExpiryDropdown(false); }}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--border-2)] transition-colors"
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      <span className="text-xl">{fromToken.icon}</span>
+                      <span className="font-bold text-sm text-[var(--ink)]">{fromToken.symbol}</span>
+                      <ChevronDown size={14} className="text-[var(--ink-3)]" />
+                    </motion.button>
+                    <AnimatePresence>
+                      {showFromDropdown && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                          className="absolute top-full left-0 mt-2 w-52 rounded-2xl overflow-hidden z-50 surface"
+                        >
+                          {tokens.map((token) => (
+                            <button
+                              key={token.symbol}
+                              onClick={() => { setFromToken(token); setShowFromDropdown(false); }}
+                              className="w-full flex items-center gap-3 px-4 py-3 transition-colors text-left hover:bg-[var(--bg-3)]"
+                            >
+                              <span className="text-xl">{token.icon}</span>
+                              <div>
+                                <div className="text-sm font-semibold text-[var(--ink)]">{token.symbol}</div>
+                                <div className="text-xs text-[var(--ink-3)]">{token.name}</div>
+                              </div>
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                  <input
+                    type="number"
+                    value={fromAmount}
+                    onChange={(e) => setFromAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="flex-1 bg-transparent text-2xl font-bold text-right outline-none text-[var(--ink)] placeholder:text-[var(--ink-4)] font-mono-nums"
+                  />
+                </div>
+              </div>
 
-        <button
-          type="submit"
-          disabled={!isConnected || loading || !token || !amount}
-          className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-        >
-          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>
-            Create Intent <ArrowRight className="w-5 h-5" />
-          </>}
-        </button>
-      </form>
+              <div className="flex justify-center my-4">
+                <motion.button
+                  onClick={() => { const temp = fromToken; setFromToken(toToken); setToToken(temp); }}
+                  className="w-10 h-10 rounded-xl flex items-center justify-center surface-subtle border border-[var(--border)] hover:border-[var(--border-2)]"
+                  whileHover={{ scale: 1.1, rotate: 180 }}
+                  whileTap={{ scale: 0.9 }}
+                  transition={{ type: "spring", stiffness: 400 }}
+                >
+                  <ArrowDown size={18} className="text-[var(--accent)]" />
+                </motion.button>
+              </div>
+
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-medium text-[var(--ink-3)]">You receive at least</label>
+                </div>
+                <div className="flex items-center gap-3 p-4 rounded-2xl surface-subtle">
+                  <div className="relative">
+                    <motion.button
+                      onClick={() => { setShowToDropdown(!showToDropdown); setShowFromDropdown(false); setShowExpiryDropdown(false); }}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--border-2)] transition-colors"
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      <span className="text-xl">{toToken.icon}</span>
+                      <span className="font-bold text-sm text-[var(--ink)]">{toToken.symbol}</span>
+                      <ChevronDown size={14} className="text-[var(--ink-3)]" />
+                    </motion.button>
+                    <AnimatePresence>
+                      {showToDropdown && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                          className="absolute top-full left-0 mt-2 w-52 rounded-2xl overflow-hidden z-50 surface"
+                        >
+                          {tokens.map((token) => (
+                            <button
+                              key={token.symbol}
+                              onClick={() => { setToToken(token); setShowToDropdown(false); }}
+                              className="w-full flex items-center gap-3 px-4 py-3 transition-colors text-left hover:bg-[var(--bg-3)]"
+                            >
+                              <span className="text-xl">{token.icon}</span>
+                              <div>
+                                <div className="text-sm font-semibold text-[var(--ink)]">{token.symbol}</div>
+                                <div className="text-xs text-[var(--ink-3)]">{token.name}</div>
+                              </div>
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                  <input
+                    type="number"
+                    value={minOutput}
+                    onChange={(e) => setMinOutput(e.target.value)}
+                    placeholder="0.00"
+                    className="flex-1 bg-transparent text-2xl font-bold text-right outline-none text-[var(--ink)] placeholder:text-[var(--ink-4)] font-mono-nums"
+                  />
+                </div>
+              </div>
+
+              <div className="mb-6">
+                <label className="text-sm font-medium text-[var(--ink-3)] mb-3 block">Intent expiry</label>
+                <div className="relative">
+                  <motion.button
+                    onClick={() => { setShowExpiryDropdown(!showExpiryDropdown); setShowFromDropdown(false); setShowToDropdown(false); }}
+                    className="w-full flex items-center justify-between p-4 rounded-2xl surface-subtle"
+                    whileTap={{ scale: 0.99 }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Clock size={16} className="text-[var(--ink-3)]" />
+                      <span className="font-semibold text-[var(--ink)]">{expiryOptions.find((o) => o.value === expiry)?.label}</span>
+                    </div>
+                    <ChevronDown size={18} className="text-[var(--ink-3)]" />
+                  </motion.button>
+                  <AnimatePresence>
+                    {showExpiryDropdown && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                        className="absolute top-full left-0 right-0 mt-2 rounded-2xl overflow-hidden z-50 surface"
+                      >
+                        {expiryOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            onClick={() => { setExpiry(option.value); setShowExpiryDropdown(false); }}
+                            className={`w-full text-left px-4 py-3.5 transition-colors hover:bg-[var(--bg-3)] ${expiry === option.value ? "bg-[var(--bg-3)]" : ""}`}
+                          >
+                            <span className={`text-sm font-semibold ${expiry === option.value ? "text-[var(--accent)]" : "text-[var(--ink)]"}`}>{option.label}</span>
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl mb-6 surface-subtle">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-[var(--ink-3)]">Protocol fee</span>
+                  <span className="text-sm font-medium text-[var(--ink)]">0.05%</span>
+                </div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-[var(--ink-3)]">Gas (estimated)</span>
+                  <span className="text-sm font-medium text-[var(--ink)]">~0 XDC</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-[var(--ink-3)]">Slippage</span>
+                  <span className="text-sm font-medium text-[var(--ink)]">0%</span>
+                </div>
+              </div>
+
+              <AnimatePresence>
+                {status === "success" && (
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="flex items-center gap-3 p-4 rounded-2xl mb-6 bg-[var(--success)]/10 border border-[var(--success)]/20">
+                    <CheckCircle size={18} className="text-[var(--success)] shrink-0" />
+                    <span className="text-[var(--success)] text-sm font-semibold">Intent created successfully. Redirecting...</span>
+                  </motion.div>
+                )}
+                {status === "error" && (
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="flex items-center gap-3 p-4 rounded-2xl mb-6 bg-red-500/10 border border-red-500/20">
+                    <AlertCircle size={18} className="text-red-500 shrink-0" />
+                    <span className="text-red-500 text-sm font-semibold">Failed to create intent. Check console for details.</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <motion.button
+                onClick={handleCreateIntent}
+                disabled={isSubmitting || !isConnected}
+                className="w-full flex items-center justify-center gap-2 px-6 py-4 rounded-full text-base font-semibold btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                whileHover={!isSubmitting ? { scale: 1.01 } : {}}
+                whileTap={!isSubmitting ? { scale: 0.99 } : {}}
+              >
+                {isSubmitting ? (
+                  <>
+                    <motion.div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full" animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} />
+                    Creating Intent...
+                  </>
+                ) : (
+                  <>
+                    <Zap size={18} />
+                    Create Intent
+                  </>
+                )}
+              </motion.button>
+            </div>
+          </motion.div>
+        </div>
+      </div>
     </div>
   );
 }

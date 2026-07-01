@@ -1,31 +1,32 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useWallet } from "@/components/providers";
-import { CONTRACTS, INTENT_REGISTRY_ABI } from "@/lib/contracts";
+import { CONTRACTS, INTENT_REGISTRY_ABI, RPC_URL } from "@/lib/contracts";
 import { ethers } from "ethers";
 import Link from "next/link";
-import { Clock, CheckCircle, XCircle, ArrowRight, Loader2, AlertTriangle, Wifi, WifiOff } from "lucide-react";
+import { Clock, CheckCircle, XCircle, Loader2, AlertTriangle, ArrowRight, Wallet } from "lucide-react";
+import { motion } from "framer-motion";
+import toast from "react-hot-toast";
+
+interface IntentItem {
+  id: string;
+  intent: any;
+}
 
 export default function MyIntentsPage() {
-  const { address, isConnected } = useWallet();
-  const [intents, setIntents] = useState<any[]>([]);
+  const { address, isConnected, signer } = useWallet();
+  const [intents, setIntents] = useState<IntentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [wsConnected, setWsConnected] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [cancelling, setCancelling] = useState<string | null>(null);
 
-  const WS_RPC_URL = "wss://ws.apothem.network";
-  const HTTP_RPC_URL = "https://rpc.apothem.network";
-
-  async function fetchIntentsViaHTTP() {
+  async function fetchIntents() {
     if (!address) return;
     try {
       setError(null);
-      const httpProvider = new ethers.JsonRpcProvider(HTTP_RPC_URL);
-      const registry = new ethers.Contract(CONTRACTS.intentRegistry, INTENT_REGISTRY_ABI, httpProvider);
+      const provider = new ethers.JsonRpcProvider(RPC_URL);
+      const registry = new ethers.Contract(CONTRACTS.intentRegistry, INTENT_REGISTRY_ABI, provider);
       const intentIds = await registry.getUserIntents(address);
       const details = await Promise.all(
         intentIds.map(async (id: string) => {
@@ -37,8 +38,7 @@ export default function MyIntentsPage() {
           }
         })
       );
-      setIntents(details.filter(Boolean));
-      setLastUpdate(new Date());
+      setIntents(details.filter((d): d is IntentItem => Boolean(d)));
     } catch (e: any) {
       console.error("Failed to fetch intents", e);
       setError(e.message || "Failed to fetch your intents");
@@ -47,52 +47,20 @@ export default function MyIntentsPage() {
     }
   }
 
-  function connectWebSocket() {
+  async function handleCancel(id: string) {
+    if (!signer) return;
+    setCancelling(id);
     try {
-      const ws = new WebSocket(WS_RPC_URL);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        console.log("MyIntents WebSocket connected");
-        setWsConnected(true);
-        setError(null);
-        const subscribeMsg = {
-          jsonrpc: "2.0",
-          id: 1,
-          method: "eth_subscribe",
-          params: ["newHeads"],
-        };
-        ws.send(JSON.stringify(subscribeMsg));
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.method === "eth_subscription" && data.params?.result) {
-            console.log("New block, refreshing my intents...");
-            fetchIntentsViaHTTP();
-          }
-        } catch (e) {
-          console.error("WebSocket message error:", e);
-        }
-      };
-
-      ws.onerror = () => {
-        setWsConnected(false);
-      };
-
-      ws.onclose = () => {
-        setWsConnected(false);
-        wsRef.current = null;
-        if (reconnectTimeoutRef.current) {
-          clearTimeout(reconnectTimeoutRef.current);
-        }
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connectWebSocket();
-        }, 5000);
-      };
-    } catch (e) {
-      setWsConnected(false);
+      const registry = new ethers.Contract(CONTRACTS.intentRegistry, INTENT_REGISTRY_ABI, signer);
+      const tx = await registry.cancelIntent(id);
+      toast.loading("Cancelling intent...", { id: "cancel" });
+      await tx.wait();
+      toast.success("Intent cancelled", { id: "cancel" });
+      fetchIntents();
+    } catch (e: any) {
+      toast.error(e?.reason || e?.message || "Failed to cancel", { id: "cancel" });
+    } finally {
+      setCancelling(null);
     }
   }
 
@@ -101,103 +69,109 @@ export default function MyIntentsPage() {
       setLoading(false);
       return;
     }
-
-    fetchIntentsViaHTTP();
-    connectWebSocket();
-
-    const interval = setInterval(() => {
-      if (!wsConnected) {
-        fetchIntentsViaHTTP();
-      }
-    }, 30000);
-
-    return () => {
-      clearInterval(interval);
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-    };
+    fetchIntents();
+    const interval = setInterval(fetchIntents, 30000);
+    return () => clearInterval(interval);
   }, [address]);
 
   if (!isConnected) {
     return (
-      <div className="text-center py-16">
-        <h1 className="text-3xl font-bold mb-4">My Intents</h1>
-        <p className="text-gray-600 mb-6">Connect your wallet to view your intents</p>
+      <div className="relative z-10 min-h-screen pt-32 pb-20 px-5 sm:px-8 lg:px-10">
+        <div className="max-w-2xl mx-auto text-center">
+          <Wallet className="w-12 h-12 text-[var(--accent)] mx-auto mb-6" />
+          <h1 className="text-3xl sm:text-4xl font-semibold tracking-[-0.02em] text-[var(--ink)] mb-4">My Intents</h1>
+          <p className="text-lg text-[var(--ink-2)] mb-8">Connect your wallet to view your active and historical intents.</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold">My Intents</h1>
-        <div className="flex items-center gap-3">
-          {wsConnected ? (
-            <span className="flex items-center gap-1 text-sm text-green-600 bg-green-50 px-3 py-1 rounded-full">
-              <Wifi className="w-4 h-4" /> Live
-            </span>
-          ) : (
-            <span className="flex items-center gap-1 text-sm text-gray-500 bg-gray-50 px-3 py-1 rounded-full">
-              <WifiOff className="w-4 h-4" /> Polling
-            </span>
-          )}
-          {lastUpdate && (
-            <span className="text-sm text-gray-400">
-              Updated: {lastUpdate.toLocaleTimeString()}
-            </span>
-          )}
-        </div>
-      </div>
+    <div className="relative z-10 min-h-screen pt-32 pb-20 px-5 sm:px-8 lg:px-10">
+      <div className="max-w-[1200px] mx-auto">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-10 gap-4">
+          <div>
+            <div className="font-mono text-[11px] tracking-[0.2em] uppercase text-[var(--accent)] mb-2">Account</div>
+            <h1 className="text-3xl sm:text-4xl font-semibold tracking-[-0.02em] text-[var(--ink)] mb-2">My Intents</h1>
+            <p className="text-[var(--ink-2)]">Track and manage your swap intents.</p>
+          </div>
+          <Link href="/create" className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold btn-primary">
+            New Intent <ArrowRight size={16} />
+          </Link>
+        </motion.div>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-red-600" />
-            <div>
-              <p className="text-red-800 font-medium">Failed to load intents</p>
-              <p className="text-sm text-red-600">{error}</p>
+        {error && (
+          <div className="rounded-2xl p-4 mb-6 bg-red-500/10 border border-red-500/20">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-500" />
+              <div>
+                <p className="font-medium text-red-600">Error loading intents</p>
+                <p className="text-sm text-red-600/70">{error}</p>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>
-      ) : intents.length === 0 ? (
-        <div className="bg-white rounded-xl p-12 shadow-sm border border-gray-200 text-center">
-          <p className="text-gray-500 mb-4">No intents found</p>
-          <Link href="/create" className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors">
-            Create Your First Intent <ArrowRight className="w-4 h-4" />
-          </Link>
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">ID</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Token</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Amount</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {intents.map((item: any) => (
-                <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="py-3 px-4 text-sm font-mono">{item.id.slice(0, 10)}...</td>
-                  <td className="py-3 px-4 text-sm">{item.intent[3].slice(0, 6)}...</td>
-                  <td className="py-3 px-4 text-sm">{ethers.formatEther(item.intent[4])}</td>
-                  <td className="py-3 px-4"><StatusBadge status={Number(item.intent[7])} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+        {loading && (
+          <div className="flex justify-center py-20">
+            <Loader2 className="w-8 h-8 animate-spin text-[var(--accent)]" />
+          </div>
+        )}
+
+        {!loading && intents.length === 0 && !error && (
+          <div className="rounded-3xl p-12 text-center surface">
+            <p className="text-[var(--ink)] text-lg mb-2">No intents found</p>
+            <p className="text-[var(--ink-3)] mb-6">Create your first intent to start trading.</p>
+            <Link href="/create" className="inline-flex items-center gap-2 px-6 py-3 rounded-full text-sm font-semibold btn-primary">
+              Create Intent <ArrowRight size={16} />
+            </Link>
+          </div>
+        )}
+
+        {!loading && intents.length > 0 && (
+          <div className="space-y-4">
+            {intents.map((item, i) => (
+              <motion.div
+                key={item.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="rounded-2xl p-6 surface"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <StatusBadge status={Number(item.intent[7])} />
+                    <div>
+                      <div className="font-mono text-xs text-[var(--ink-3)] mb-1">{item.id.slice(0, 18)}...</div>
+                      <div className="text-lg font-semibold text-[var(--ink)]">{ethers.formatEther(item.intent[4])} XDC</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-6 sm:gap-10">
+                    <div>
+                      <div className="text-xs text-[var(--ink-3)] mb-1">Token</div>
+                      <div className="font-mono text-sm text-[var(--ink)]">{item.intent[3].slice(0, 10)}...</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-[var(--ink-3)] mb-1">Expiry</div>
+                      <div className="font-mono text-sm text-[var(--ink)]">{new Date(Number(item.intent[6]) * 1000).toLocaleDateString()}</div>
+                    </div>
+                    {Number(item.intent[7]) === 0 && (
+                      <button
+                        onClick={() => handleCancel(item.id)}
+                        disabled={cancelling === item.id}
+                        className="px-4 py-2 rounded-xl text-sm font-semibold text-red-500 border border-red-500/20 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                      >
+                        {cancelling === item.id ? <Loader2 className="w-4 h-4 animate-spin inline" /> : "Cancel"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -205,14 +179,14 @@ export default function MyIntentsPage() {
 function StatusBadge({ status }: { status: number }) {
   switch (status) {
     case 0:
-      return <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium"><Clock className="w-3 h-3" />Pending</span>;
+      return <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/10 text-yellow-600 rounded-full text-xs font-medium border border-yellow-500/20"><Clock className="w-3 h-3" />Pending</span>;
     case 1:
-      return <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium"><CheckCircle className="w-3 h-3" />Fulfilled</span>;
+      return <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 text-emerald-600 rounded-full text-xs font-medium border border-emerald-500/20"><CheckCircle className="w-3 h-3" />Filled</span>;
     case 2:
-      return <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-50 text-gray-700 rounded-full text-xs font-medium">Cancelled</span>;
+      return <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-500/10 text-gray-500 rounded-full text-xs font-medium border border-gray-500/20">Cancelled</span>;
     case 3:
-      return <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-50 text-red-700 rounded-full text-xs font-medium"><XCircle className="w-3 h-3" />Expired</span>;
+      return <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 text-red-500 rounded-full text-xs font-medium border border-red-500/20"><XCircle className="w-3 h-3" />Expired</span>;
     default:
-      return <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-50 text-gray-700 rounded-full text-xs font-medium">Unknown</span>;
+      return <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-500/10 text-gray-500 rounded-full text-xs font-medium border border-gray-500/20">Unknown</span>;
   }
 }

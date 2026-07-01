@@ -1,22 +1,24 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-import { WalletProvider } from "@/components/WalletProvider";
-import { Navbar } from "@/components/navbar";
+import { WalletProvider } from "@/components/providers";
+import Navbar from "@/vite-design/components/Navbar";
+import Footer from "@/vite-design/components/Footer";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
   subsets: ["latin"],
+  variable: "--font-inter",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const jetbrains = JetBrains_Mono({
   subsets: ["latin"],
+  weight: ["400", "700"],
+  variable: "--font-mono",
 });
 
 export const metadata: Metadata = {
-  title: "XDC Intent Framework",
-  description: "Intent-based trading on XDC Network",
+  title: "XDCIntent — Universal Liquidity on XDC Network",
+  description: "Intent-based swap protocol on XDC Network",
 };
 
 export default function RootLayout({
@@ -25,13 +27,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-gray-50">
+    <html lang="en">
+      <body className={`${inter.variable} ${jetbrains.variable} font-sans antialiased`}>
         <WalletProvider>
-          <Navbar />
-          <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
-            {children}
-          </main>
+          <div className="min-h-screen relative bg-[var(--bg)] text-[var(--ink)]">
+            <div className="fixed inset-0 pointer-events-none hero-rings" />
+            <Navbar />
+            <main>{children}</main>
+            <Footer />
+          </div>
         </WalletProvider>
       </body>
     </html>

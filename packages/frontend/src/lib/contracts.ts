@@ -23,7 +23,7 @@ export const CONTRACTS = {
   upgradeableRegistryProxy: "0x20ACA4dCdB2c2B86Bf6f3A0afaDE41AbA825fFc7",
 };
 
-export const RPC_URL = "https://apothem.xdcrpc.com";
+export const RPC_URL = "https://earpc.apothem.network";
 
 export const INTENT_REGISTRY_ABI = [
   "function createIntent(bytes32 intentId, address token, uint256 amount, uint256 expiryTimestamp) external",
