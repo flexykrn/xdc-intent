@@ -42,6 +42,7 @@ async function loadWalletConnect() {
       EthereumProvider = mod.default;
     } catch (error) {
       console.warn("@walletconnect/ethereum-provider not installed");
+      EthereumProvider = null;
     }
   }
   return EthereumProvider;
