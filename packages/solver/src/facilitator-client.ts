@@ -5,7 +5,7 @@ import { SolverConfig } from './config';
 export interface PaymentRequest {
   amount: string;
   asset: string;
-  recipient: string;
+  payTo: string;
   network: string;
   nonce: string;
   deadline: number;
@@ -24,8 +24,10 @@ export class FacilitatorClient {
       `${this.config.facilitatorUrl}/v1/payment-request?intentId=${intentId}&payer=${solverAddress}`,
       { headers: { 'X-API-Key': this.config.facilitatorApiKey } }
     );
-    if (res.status === 402) {
-      return (await res.json()) as PaymentRequest;
+    const body = await res.json();
+    this.logger.debug('Payment request response', body);
+    if (res.ok) {
+      return body as PaymentRequest;
     }
     throw new Error(`Unexpected facilitator status: ${res.status}`);
   }

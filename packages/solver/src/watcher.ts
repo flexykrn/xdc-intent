@@ -25,20 +25,31 @@ export class EventWatcher {
   private maxReconnectAttempts: number = 10;
 
   constructor(private config: SolverConfig, private logger: Logger) {
-    const wsUrl = config.rpcUrl.replace('https://', 'wss://').replace('http://', 'ws://');
-    try {
-      this.provider = new ethers.WebSocketProvider(wsUrl);
-      this.logger.info('Using WebSocket provider');
-    } catch {
-      this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
-      this.logger.info('Using HTTP polling provider');
-    }
+    this.provider = this.createProvider();
 
     const abi = [
       'event IntentSubmitted(bytes32 indexed intentId, address indexed user, address sourceToken, uint256 sourceAmount, address destToken, uint256 minDestAmount, uint256 expiry)',
-      'function getIntent(bytes32 intentId) external view returns (bytes32, address, uint256, address, uint256, uint256, address, uint256, uint256, uint256, uint256, address[], uint8, address, uint256, bytes32)',
+      'function getIntent(bytes32 intentId) external view returns (tuple(bytes32 intentId, address user, uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, bytes signature, address[] allowedSolvers, uint8 status, address solver, uint256 fulfilledAmount, bytes32 paymentTxHash))',
     ];
     this.contract = new ethers.Contract(config.intentRegistryAddress, abi, this.provider);
+  }
+
+  private createProvider(): ethers.WebSocketProvider | ethers.JsonRpcProvider {
+    const url = this.config.rpcUrl;
+    if (url.startsWith('ws://') || url.startsWith('wss://')) {
+      return new ethers.WebSocketProvider(url);
+    }
+    this.logger.info('Using HTTP polling provider');
+    return new ethers.JsonRpcProvider(url);
+  }
+
+  private recreateProvider(): ethers.WebSocketProvider | ethers.JsonRpcProvider {
+    const wsUrl = this.config.rpcUrl.replace('https://', 'wss://').replace('http://', 'ws://');
+    try {
+      return new ethers.WebSocketProvider(wsUrl);
+    } catch {
+      return new ethers.JsonRpcProvider(this.config.rpcUrl);
+    }
   }
 
   async start(callback: (intent: IntentEvent) => void): Promise<void> {
@@ -65,7 +76,7 @@ export class EventWatcher {
             sourceAmount,
             destToken,
             minDestAmount,
-            maxSolverFee: full[8],
+            maxSolverFee: full.maxSolverFee,
             expiry: Number(expiry),
             blockNumber: event.log.blockNumber,
             transactionHash: event.log.transactionHash,
@@ -104,7 +115,7 @@ export class EventWatcher {
             sourceAmount: args[3],
             destToken: args[4],
             minDestAmount: args[5],
-            maxSolverFee: full[8],
+            maxSolverFee: full.maxSolverFee,
             expiry: Number(args[6]),
             blockNumber: event.blockNumber,
             transactionHash: event.transactionHash,

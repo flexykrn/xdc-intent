@@ -1,3 +1,5 @@
+"use client";
+
 import { useWallet } from "@/components/providers";
 import { XDCIntentSDK, IntentParams } from "@xdc-intent/sdk";
 import { ethers } from "ethers";
@@ -22,8 +24,11 @@ const expiryOptions = [
 
 const tokens: TokenInfo[] = [
   { symbol: "XDC", name: "XDC Network", address: "0x0000000000000000000000000000000000000000" },
-  { symbol: "MUSDC", name: "Mock USDC", address: "0x951857744785f80e2d4013e0d0814c1356412440" },
+  { symbol: "MUSDC", name: "Mock USDC", address: "0x38bBd638AbCB44BDa788eBe382ee224b4f1F2f52" },
+  { symbol: "MXDC", name: "Mock XDC", address: "0xBdff490ba4a9F14D9FCD07e56930A6fAC928d535" },
 ];
+
+const DEFAULT_SOLVER = "0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe";
 
 export default function CreatePage() {
   const { isConnected, sdk, address } = useWallet();
@@ -69,7 +74,21 @@ export default function CreatePage() {
         maxSolverFee: ethers.parseEther(maxSolverFee),
         expiry: expiryTimestamp,
         nonce,
+        allowedSolvers: [DEFAULT_SOLVER],
       };
+
+      // Approve escrow to spend ERC-20 source tokens.
+      if (fromToken.address !== ethers.ZeroAddress) {
+        const token = new ethers.Contract(
+          fromToken.address,
+          ["function approve(address spender,uint256 amount) returns (bool)"],
+          sdk.escrow.runner as ethers.Signer
+        );
+        toast.loading("Approving token...", { id: "approve" });
+        const approveTx = await token.approve(await sdk.escrow.getAddress(), params.sourceAmount);
+        await approveTx.wait();
+        toast.success("Token approved", { id: "approve" });
+      }
 
       const tx = await sdk.submitIntent(await sdk.signIntent(address, params));
       toast.loading("Creating intent...", { id: "create" });

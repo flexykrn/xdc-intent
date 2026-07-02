@@ -66,6 +66,7 @@ export class TxHashFacilitatorClient implements FacilitatorClient {
   getSupported(): Promise<SupportedResponse> {
     return Promise.resolve({
       kinds: [
+        { x402Version: 2, scheme: 'exact', network: 'eip155:51' },
         { x402Version: 2, scheme: 'exact', network: 'eip155:*' },
       ],
       extensions: [],
@@ -126,8 +127,8 @@ export class TxHashFacilitatorClient implements FacilitatorClient {
     const transferLog = receipt.logs.find((log) => {
       if (log.topics[0] !== TRANSFER_EVENT_TOPIC) return false;
       if (log.address.toLowerCase() !== requirements.asset.toLowerCase()) return false;
-      const from = ethers.getAddress(ethers.zeroPadValue(log.topics[1], 20));
-      const to = ethers.getAddress(ethers.zeroPadValue(log.topics[2], 20));
+      const from = ethers.getAddress(ethers.dataSlice(log.topics[1], 12));
+      const to = ethers.getAddress(ethers.dataSlice(log.topics[2], 12));
       const value = BigInt(log.data);
       return (
         (!payer || from.toLowerCase() === payer.toLowerCase()) &&

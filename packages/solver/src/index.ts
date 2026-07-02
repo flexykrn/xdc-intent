@@ -104,7 +104,7 @@ export class Solver {
         ['function transfer(address to, uint256 amount) external returns (bool)'],
         signer
       );
-      const paymentTx = await token.transfer(paymentRequest.recipient, paymentRequest.amount);
+      const paymentTx = await token.transfer(paymentRequest.payTo, paymentRequest.amount);
       const paymentReceipt = await paymentTx.wait();
       const paymentTxHash = paymentReceipt?.hash || paymentTx.hash;
 

@@ -49,7 +49,7 @@ const provider = new ethers.JsonRpcProvider(RPC_URL);
 const signer = new ethers.Wallet(SIGNER_KEY, provider);
 
 const IntentRegistryABI = [
-  'function getIntent(bytes32 intentId) external view returns (bytes32, address, uint256, address, uint256, uint256, address, uint256, uint256, uint256, uint256, address[], uint8, address, uint256, bytes32)',
+  'function getIntent(bytes32 intentId) external view returns (tuple(bytes32 intentId, address user, uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, bytes signature, address[] allowedSolvers, uint8 status, address solver, uint256 fulfilledAmount, bytes32 paymentTxHash))',
   'function isIntentPending(bytes32 intentId) external view returns (bool)',
 ];
 
@@ -108,22 +108,22 @@ const addressLimiter = rateLimit({
 async function getIntentDetails(intentId: string) {
   const result = await intentRegistry.getIntent(intentId);
   return {
-    intentId: result[0],
-    user: result[1],
-    sourceChainId: Number(result[2]),
-    sourceToken: result[3],
-    sourceAmount: result[4],
-    destChainId: Number(result[5]),
-    destToken: result[6],
-    minDestAmount: result[7],
-    maxSolverFee: result[8],
-    expiry: Number(result[9]),
-    nonce: result[10],
-    allowedSolvers: result[11],
-    status: Number(result[12]),
-    solver: result[13],
-    fulfilledAmount: result[14],
-    paymentTxHash: result[15],
+    intentId: result.intentId,
+    user: result.user,
+    sourceChainId: Number(result.sourceChainId),
+    sourceToken: result.sourceToken,
+    sourceAmount: result.sourceAmount,
+    destChainId: Number(result.destChainId),
+    destToken: result.destToken,
+    minDestAmount: result.minDestAmount,
+    maxSolverFee: result.maxSolverFee,
+    expiry: Number(result.expiry),
+    nonce: result.nonce,
+    allowedSolvers: result.allowedSolvers,
+    status: Number(result.status),
+    solver: result.solver,
+    fulfilledAmount: result.fulfilledAmount,
+    paymentTxHash: result.paymentTxHash,
   };
 }
 
@@ -256,6 +256,34 @@ app.post('/v1/pay', apiKeyAuth, apiKeyLimiter, addressLimiter, async (req: Reque
 });
 
 // Payment request details for a specific intent
+app.get('/v1/payment-request', async (req: Request, res: Response) => {
+  const { intentId } = req.query;
+
+  if (!intentId || typeof intentId !== 'string') {
+    return res.status(400).json({ error: 'Missing intentId query parameter' });
+  }
+
+  try {
+    const intent = await getIntentDetails(intentId);
+
+    if (intent.status !== 0) {
+      return res.status(404).json({ error: 'Intent is not open' });
+    }
+
+    res.status(200).json({
+      intentId,
+      network: NETWORK,
+      scheme: 'exact',
+      asset: intent.sourceToken,
+      amount: String(intent.maxSolverFee),
+      payTo: signer.address,
+      maxTimeoutSeconds: 600,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/v1/payment-request/:intentId', async (req: Request, res: Response) => {
   const { intentId } = req.params;
 

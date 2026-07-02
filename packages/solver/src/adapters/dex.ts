@@ -70,7 +70,7 @@ export class XSwapV3Adapter implements DEXAdapter {
   }
 }
 
-// Mock adapter for local testing.
+// Mock adapter for local/testing use.
 export class MockDEXAdapter implements DEXAdapter {
   private rates = new Map<string, number>([
     ['XDC-USDC', 0.05],
@@ -78,8 +78,15 @@ export class MockDEXAdapter implements DEXAdapter {
     ['USDC-USDT', 1],
   ]);
 
+  private tokenSymbols = new Map<string, string>([
+    ['0x38bbd638abcb44bda788ebe382ee224b4f1f2f52', 'USDC'],
+    ['0xbdff490ba4a9f14d9fcd07e56930a6fac928d535', 'XDC'],
+  ]);
+
   async getQuote(inputToken: string, outputToken: string, inputAmount: bigint): Promise<SwapQuote> {
-    const pair = `${inputToken}-${outputToken}`;
+    const inSym = this.tokenSymbols.get(inputToken.toLowerCase()) || inputToken;
+    const outSym = this.tokenSymbols.get(outputToken.toLowerCase()) || outputToken;
+    const pair = `${inSym}-${outSym}`;
     const rate = this.rates.get(pair) || 1;
     const fee = inputAmount / 1000n;
     const outputAmount = ((inputAmount - fee) * BigInt(Math.floor(rate * 1000))) / 1000n;

@@ -46,7 +46,7 @@ export class IntentEvaluator {
     }
 
     const gasCost = this.estimateGasCost(quote.gasEstimate + 100000n);
-    const grossProfit = quote.outputAmount - intent.sourceAmount;
+    const grossProfit = quote.outputAmount - intent.minDestAmount;
     const netProfit = grossProfit - gasCost - intent.maxSolverFee;
 
     if (netProfit <= 0n) {
@@ -57,7 +57,7 @@ export class IntentEvaluator {
       };
     }
 
-    const profitPercent = (Number(netProfit) / Number(intent.sourceAmount)) * 100;
+    const profitPercent = (Number(netProfit) / Number(intent.minDestAmount)) * 100;
 
     if (profitPercent < this.config.minProfitMargin) {
       return {
