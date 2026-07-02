@@ -8,7 +8,11 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "ethers": "^6.10.0",
     "@xdc-intent/constants": "file:../../shared/constants",
     "@xdc-intent/types": "file:../../shared/types"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
   }
 }

@@ -10,6 +10,10 @@
   },
   "dependencies": {
     "@walletconnect/ethereum-provider": "^2.23.10",
+    "@xdc-intent/constants": "^1.0.0",
+    "@xdc-intent/sdk": "^1.0.0",
+    "@xdc-intent/types": "^1.0.0",
+    "@xdc-intent/utils": "^1.0.0",
     "ethers": "^6.17.0",
     "framer-motion": "^12.42.2",
     "lucide-react": "^1.21.0",

@@ -1,21 +1,12 @@
 import { ethers } from 'ethers';
 import {
-  EscrowABI,
-  PaymentVerifierABI,
-  IntentRegistryABI,
-  CreateIntentSchema,
-  FulfillIntentSchema,
-  PaymentProofSchema,
-  IntentInputSchema,
-  CreateIntentInput,
-  FulfillIntentInput,
-  PaymentProof,
-  IntentInput,
+  IntentParams,
+  SignedIntent,
   IntentStatus,
-  CHAIN_IDS,
-  CONTRACT_ADDRESSES,
-  getUserFriendlyError,
-} from './constants';
+  PaymentProofRequest,
+} from '@xdc-intent/types';
+import { CHAIN_IDS, CAIP2, CONTRACT_ADDRESSES } from '@xdc-intent/constants';
+import { deriveIntentId, normalizeAddress, getUserFriendlyError, isXDCAddress } from '@xdc-intent/utils';
 
 export interface XDCIntentSDKConfig {
   provider: ethers.Provider;
@@ -30,44 +21,22 @@ export interface XDCIntentSDKConfig {
   pollingInterval?: number;
 }
 
-export interface Intent {
+export interface Intent extends IntentParams {
   intentId: string;
   user: string;
-  token: string;
-  amount: bigint;
-  expiry: number;
   status: IntentStatus;
   solver: string;
-  createdAt: number;
-  fulfilledAt: number;
-  cancelledAt: number;
-  expiredAt: number;
+  fulfilledAmount: bigint;
+  paymentTxHash: string;
 }
 
-export interface SignedIntent {
-  intent: IntentInput;
-  intentId: string;
-  signature: string;
-}
+export { IntentParams, SignedIntent, IntentStatus, PaymentProofRequest };
+
+export { ethers };
 
 export interface EventFilter {
   fromBlock?: number;
   toBlock?: number;
-}
-
-export interface CostEstimate {
-  gasLimit: bigint;
-  gasPrice: bigint;
-  gasCost: bigint;
-  protocolFee: bigint;
-  totalCost: bigint;
-  totalCostUsd: number;
-}
-
-export interface RetryOptions {
-  maxRetries?: number;
-  delayMs?: number;
-  onRetry?: (attempt: number, error: Error) => void;
 }
 
 export interface EventWatcher {
@@ -97,16 +66,15 @@ export class XDCIntentSDK {
 
     const defaultAddresses = CONTRACT_ADDRESSES[config.chainId];
     if (!defaultAddresses && !config.contractAddresses) {
-      throw new Error(`No contract addresses for chainId ${config.chainId}. Please provide contractAddresses in config.`);
+      throw new Error(`No contract addresses for chainId ${config.chainId}`);
     }
 
     this.addresses = config.contractAddresses || defaultAddresses!;
 
-    // Initialize WebSocket provider if URL provided
     if (config.webSocketUrl) {
       try {
         this.wsProvider = new ethers.WebSocketProvider(config.webSocketUrl);
-      } catch (error) {
+      } catch {
         console.warn('WebSocket connection failed, falling back to HTTP polling');
       }
     }
@@ -124,124 +92,71 @@ export class XDCIntentSDK {
     }
   }
 
-  // ========== Chain ID Detection ==========
-
   async checkChainId(): Promise<void> {
     const network = await this.provider.getNetwork();
     const currentChainId = Number(network.chainId);
     if (currentChainId !== this.chainId) {
       throw new Error(
-        `Wrong network. Expected chain ID ${this.chainId}, but connected to ${currentChainId}. ` +
-        `Please switch to ${this.chainId === CHAIN_IDS.XDC_MAINNET ? 'XDC Mainnet' : 'XDC Apothem Testnet'}.`
+        `Wrong network. Expected chain ID ${this.chainId}, connected to ${currentChainId}.`
       );
     }
   }
 
-  // ========== Address Normalization ==========
-
   static normalizeAddress(address: string): string {
-    if (address.toLowerCase().startsWith('xdc')) {
-      return '0x' + address.slice(3);
-    }
-    return address.toLowerCase();
+    return normalizeAddress(address);
   }
 
   static isXDCAddress(address: string): boolean {
-    return address.toLowerCase().startsWith('xdc') || address.toLowerCase().startsWith('0x');
+    return isXDCAddress(address);
   }
 
-  // ========== Intent ID Generation ==========
-
-  static generateIntentId(): string {
-    return ethers.keccak256(ethers.randomBytes(32));
+  static deriveIntentId(user: string, params: IntentParams): string {
+    return deriveIntentId(user, {
+      sourceChainId: params.sourceChainId,
+      sourceToken: params.sourceToken,
+      sourceAmount: params.sourceAmount,
+      destChainId: params.destChainId,
+      destToken: params.destToken,
+      minDestAmount: params.minDestAmount,
+      maxSolverFee: params.maxSolverFee,
+      expiry: params.expiry,
+      nonce: params.nonce,
+    });
   }
 
-  static computeIntentId(
-    user: string,
-    token: string,
-    amount: bigint,
-    expiry: number,
-    nonce: number
-  ): string {
-    return ethers.keccak256(
-      ethers.AbiCoder.defaultAbiCoder().encode(
-        ['address', 'address', 'uint256', 'uint256', 'uint256'],
-        [user, token, amount, expiry, nonce]
-      )
-    );
+  createIntent(params: IntentParams): SignedIntent {
+    if (!this.signer) throw new Error('Signer required');
+    const signerAddress = this.signer.getAddress();
+    // We need the address synchronously for ID derivation; callers should pass user address.
+    // For now, deriveIntentId requires an address. We will compute it asynchronously in signAndSubmit.
+    throw new Error('Use createAndSubmitIntent or signIntent with a signer address');
   }
 
-  // ========== Intent Creation ==========
-
-  async createIntent(input: CreateIntentInput): Promise<ethers.TransactionResponse> {
+  async createAndSubmitIntent(params: IntentParams): Promise<{ intentId: string; txHash: string }> {
+    if (!this.signer) throw new Error('Signer required');
     await this.checkChainId();
-    const validated = CreateIntentSchema.parse(input);
-    const amount = typeof validated.amount === 'string' ? ethers.parseEther(validated.amount) : validated.amount;
 
-    return this.submitWithRetry(() =>
-      this.intentRegistry.createIntent(
-        validated.intentId,
-        validated.token,
-        amount,
-        validated.expiry
-      )
-    );
+    const user = await this.signer.getAddress();
+    const signed = await this.signIntent(user, params);
+    const tx = await this.submitIntent(signed);
+    return { intentId: signed.intentId, txHash: tx.hash };
   }
 
-  async createIntentBatch(inputs: IntentInput[], nonce?: number): Promise<SignedIntent[]> {
-    await this.checkChainId();
-    
-    if (!this.signer) {
-      throw new Error('Signer required for batch intent creation');
-    }
-
-    const signerAddress = await this.signer.getAddress();
-    const currentNonce = nonce || Math.floor(Date.now() / 1000);
-    const signedIntents: SignedIntent[] = [];
-
-    for (let i = 0; i < inputs.length; i++) {
-      const validated = IntentInputSchema.parse(inputs[i]);
-      const amount = typeof validated.amount === 'string' ? ethers.parseEther(validated.amount) : validated.amount;
-      
-      const intentId = XDCIntentSDK.computeIntentId(
-        signerAddress,
-        validated.token,
-        amount,
-        validated.expiry,
-        currentNonce + i
-      );
-
-      const signature = await this.signIntent({
-        intentId,
-        token: validated.token,
-        amount,
-        expiry: validated.expiry,
-      });
-
-      signedIntents.push({
-        intent: validated,
-        intentId,
-        signature,
-      });
-    }
-
-    return signedIntents;
-  }
-
-  // ========== EIP-712 Signing ==========
-
-  async signIntent(intent: {
-    intentId: string;
-    token: string;
-    amount: bigint;
-    expiry: number;
-  }): Promise<string> {
-    if (!this.signer) {
-      throw new Error('Signer required for intent signing');
-    }
+  async signIntent(user: string, params: IntentParams): Promise<SignedIntent> {
+    const intentId = deriveIntentId(user, {
+      sourceChainId: params.sourceChainId,
+      sourceToken: params.sourceToken,
+      sourceAmount: params.sourceAmount,
+      destChainId: params.destChainId,
+      destToken: params.destToken,
+      minDestAmount: params.minDestAmount,
+      maxSolverFee: params.maxSolverFee,
+      expiry: params.expiry,
+      nonce: params.nonce,
+    });
 
     const domain = {
-      name: 'XDCIntent',
+      name: 'XDCIntents',
       version: '1',
       chainId: this.chainId,
       verifyingContract: this.addresses.intentRegistry,
@@ -249,364 +164,156 @@ export class XDCIntentSDK {
 
     const types = {
       Intent: [
-        { name: 'intentId', type: 'bytes32' },
-        { name: 'token', type: 'address' },
-        { name: 'amount', type: 'uint256' },
+        { name: 'sourceChainId', type: 'uint256' },
+        { name: 'sourceToken', type: 'address' },
+        { name: 'sourceAmount', type: 'uint256' },
+        { name: 'destChainId', type: 'uint256' },
+        { name: 'destToken', type: 'address' },
+        { name: 'minDestAmount', type: 'uint256' },
+        { name: 'maxSolverFee', type: 'uint256' },
         { name: 'expiry', type: 'uint256' },
+        { name: 'nonce', type: 'uint256' },
       ],
     };
 
-    return this.signer.signTypedData(domain, types, intent);
+    const signature = await this.signer!.signTypedData(domain, types, {
+      sourceChainId: params.sourceChainId,
+      sourceToken: params.sourceToken,
+      sourceAmount: params.sourceAmount,
+      destChainId: params.destChainId,
+      destToken: params.destToken,
+      minDestAmount: params.minDestAmount,
+      maxSolverFee: params.maxSolverFee,
+      expiry: params.expiry,
+      nonce: params.nonce,
+    });
+
+    return { params, intentId, signature };
   }
 
-  // ========== Payment Proof ==========
-
-  async createPaymentProof(
-    intentId: string,
-    solver: string,
-    token: string,
-    amount: bigint,
-    protocolFee: bigint,
-    expiryTimestamp: number
-  ): Promise<PaymentProof> {
-    return {
-      intentId,
-      solver,
-      token,
-      amount,
-      protocolFee,
-      expiryTimestamp,
-      chainId: this.chainId,
-    };
-  }
-
-  async signPaymentProof(proof: PaymentProof, signer: ethers.Signer): Promise<string> {
-    const validated = PaymentProofSchema.parse(proof);
-
-    const domain = {
-      name: 'XDCIntentPayment',
-      version: '1',
-      chainId: this.chainId,
-      verifyingContract: this.addresses.paymentVerifier,
-    };
-
-    const types = {
-      PaymentProof: [
-        { name: 'intentId', type: 'bytes32' },
-        { name: 'solver', type: 'address' },
-        { name: 'token', type: 'address' },
-        { name: 'amount', type: 'uint256' },
-        { name: 'protocolFee', type: 'uint256' },
-        { name: 'expiryTimestamp', type: 'uint256' },
-        { name: 'chainId', type: 'uint256' },
-      ],
-    };
-
-    return signer.signTypedData(domain, types, validated);
-  }
-
-  // ========== Fulfillment ==========
-
-  async fulfillIntent(input: FulfillIntentInput): Promise<ethers.TransactionResponse> {
+  async submitIntent(signed: SignedIntent): Promise<ethers.TransactionResponse> {
     await this.checkChainId();
-    const validated = FulfillIntentSchema.parse(input);
+    const params = signed.params;
     return this.submitWithRetry(() =>
-      this.intentRegistry.fulfillIntent(
-        validated.intentId,
-        validated.solver,
-        validated.paymentProof,
-        validated.signature
+      this.intentRegistry.submitIntent(
+        {
+          sourceChainId: params.sourceChainId,
+          sourceToken: params.sourceToken,
+          sourceAmount: params.sourceAmount,
+          destChainId: params.destChainId,
+          destToken: params.destToken,
+          minDestAmount: params.minDestAmount,
+          maxSolverFee: params.maxSolverFee,
+          expiry: params.expiry,
+          nonce: params.nonce,
+          allowedSolvers: params.allowedSolvers || [],
+        },
+        signed.signature
       )
     );
   }
 
-  // ========== Cancellation ==========
-
   async cancelIntent(intentId: string): Promise<ethers.TransactionResponse> {
     await this.checkChainId();
-    
-    // Validate intent exists and is pending
-    const intent = await this.getIntent(intentId);
-    if (intent.status !== IntentStatus.Pending) {
-      throw new Error('Intent is not pending. Only pending intents can be cancelled.');
-    }
-
-    if (!this.signer) {
-      throw new Error('Signer required for cancellation');
-    }
-
-    const signerAddress = await this.signer.getAddress();
-    if (signerAddress.toLowerCase() !== intent.user.toLowerCase()) {
-      throw new Error('Only the intent owner can cancel this intent.');
-    }
-
     return this.submitWithRetry(() => this.intentRegistry.cancelIntent(intentId));
   }
 
-  async expireIntent(intentId: string): Promise<ethers.TransactionResponse> {
+  async cancelExpiredIntents(intentIds: string[]): Promise<ethers.TransactionResponse> {
     await this.checkChainId();
-    
-    // Validate intent exists and is pending
-    const intent = await this.getIntent(intentId);
-    if (intent.status !== IntentStatus.Pending) {
-      throw new Error('Intent is not pending. Only pending intents can be expired.');
-    }
-
-    const block = await this.provider.getBlock('latest');
-    if (block!.timestamp <= intent.expiry) {
-      throw new Error(`Intent has not expired yet. Current block time: ${block!.timestamp}, expiry: ${intent.expiry}`);
-    }
-
-    return this.submitWithRetry(() => this.intentRegistry.expireIntent(intentId));
+    return this.submitWithRetry(() => this.intentRegistry.cancelExpiredIntents(intentIds));
   }
 
-  // ========== View Functions ==========
+  async fulfillIntent(
+    intentId: string,
+    destAmount: bigint,
+    paymentTxHash: string
+  ): Promise<ethers.TransactionResponse> {
+    await this.checkChainId();
+    return this.submitWithRetry(() => this.intentRegistry.fulfillIntent(intentId, destAmount, paymentTxHash));
+  }
 
   async getIntent(intentId: string): Promise<Intent> {
     const result = await this.intentRegistry.getIntent(intentId);
     return {
       intentId: result[0],
       user: result[1],
-      token: result[2],
-      amount: result[3],
-      expiry: Number(result[4]),
-      status: result[5],
-      solver: result[6],
-      createdAt: Number(result[7]),
-      fulfilledAt: Number(result[8]),
-      cancelledAt: Number(result[9]),
-      expiredAt: Number(result[10]),
+      sourceChainId: result[2],
+      sourceToken: result[3],
+      sourceAmount: result[4],
+      destChainId: result[5],
+      destToken: result[6],
+      minDestAmount: result[7],
+      maxSolverFee: result[8],
+      expiry: Number(result[9]),
+      nonce: result[10],
+      allowedSolvers: result[11],
+      status: Number(result[12]) as IntentStatus,
+      solver: result[13],
+      fulfilledAmount: result[14],
+      paymentTxHash: result[15],
     };
   }
 
-  async getUserIntents(user: string): Promise<string[]> {
-    return this.intentRegistry.getUserIntents(user);
+  async getUserNonce(address: string): Promise<bigint> {
+    return this.intentRegistry.getUserNonce(address);
   }
 
-  async getSolverIntents(solver: string): Promise<string[]> {
-    return this.intentRegistry.getSolverIntents(solver);
-  }
-
-  async isIntentPending(intentId: string): Promise<boolean> {
-    return this.intentRegistry.isIntentPending(intentId);
-  }
-
-  async getEscrowBalance(token: string, user: string, intentId: string): Promise<bigint> {
-    return this.escrow.getBalance(token, user, intentId);
-  }
-
-  async getTotalIntents(): Promise<bigint> {
-    return this.intentRegistry.totalIntents();
-  }
-
-  async getTotalIntentsFulfilled(): Promise<bigint> {
-    return this.intentRegistry.totalIntentsFulfilled();
-  }
-
-  // ========== Fee Estimation ==========
-
-  async estimateIntentCost(
-    token: string,
-    amount: bigint,
-    gasPrice?: bigint
-  ): Promise<CostEstimate> {
-    const feeData = await this.provider.getFeeData();
-    const currentGasPrice = gasPrice || feeData.gasPrice || 25000000000n;
-    
-    // Estimate gas for createIntent
-    const gasLimit = 400000n; // Based on testnet measurements
-    const gasCost = gasLimit * currentGasPrice;
-    
-    // Get protocol fee
-    const protocolFee = await this.escrow.calculateProtocolFee(amount);
-    
-    // Convert to USD (using static rate for v1: 1 XDC = $0.03)
-    const xdcPriceUsd = 0.03;
-    const totalXdc = Number(ethers.formatEther(gasCost + protocolFee));
-    const totalCostUsd = totalXdc * xdcPriceUsd;
-    
+  async getPaymentProofRequest(
+    intentId: string,
+    recipient: string
+  ): Promise<PaymentProofRequest> {
+    const intent = await this.getIntent(intentId);
+    const nonce = ethers.keccak256(ethers.randomBytes(32));
     return {
-      gasLimit,
-      gasPrice: currentGasPrice,
-      gasCost,
-      protocolFee,
-      totalCost: gasCost + protocolFee,
-      totalCostUsd,
+      intentId,
+      amount: intent.maxSolverFee.toString(),
+      asset: intent.sourceToken,
+      recipient,
+      network: CAIP2[this.chainId] || `eip155:${this.chainId}`,
+      nonce,
+      deadline: intent.expiry,
     };
   }
 
-  // ========== Event Watching with WebSocket + Polling Fallback ==========
-
-  watchIntents(
-    callback: (intentId: string, user: string, token: string, amount: bigint, expiry: number) => void,
-    filter?: EventFilter
-  ): EventWatcher {
-    const watcherId = `intent-created-${Date.now()}`;
-    this.activeWatchers.add(watcherId);
-
-    if (this.wsProvider) {
-      // Use WebSocket for real-time events
-      const eventFilter = this.intentRegistry.filters.IntentCreated();
-      const listener = (intentId: string, user: string, token: string, amount: bigint, expiry: number) => {
-        if (this.activeWatchers.has(watcherId)) {
-          callback(intentId, user, token, amount, expiry);
-        }
-      };
-
-      this.intentRegistry.on(eventFilter, listener);
-      this.listeners.set(watcherId, { type: 'websocket', listener, filter: eventFilter });
-
-      return {
-        unsubscribe: () => {
-          this.intentRegistry.off(eventFilter, listener);
-          this.activeWatchers.delete(watcherId);
-          this.listeners.delete(watcherId);
-        },
-        isActive: () => this.activeWatchers.has(watcherId),
-      };
-    } else {
-      // Fallback to polling
-      let lastBlock = filter?.fromBlock || -1;
-      const intervalId = setInterval(async () => {
-        if (!this.activeWatchers.has(watcherId)) return;
-        
-        try {
-          const currentBlock = await this.provider.getBlockNumber();
-          if (lastBlock === -1) {
-            lastBlock = currentBlock - 10; // Start from 10 blocks ago
-          }
-          
-          if (currentBlock > lastBlock) {
-            const events = await this.intentRegistry.queryFilter(
-              this.intentRegistry.filters.IntentCreated(),
-              lastBlock + 1,
-              currentBlock
-            );
-            
-            for (const event of events) {
-              const eventLog = event as any;
-              if (eventLog.args) {
-                callback(
-                  eventLog.args.intentId,
-                  eventLog.args.user,
-                  eventLog.args.token,
-                  eventLog.args.amount,
-                  eventLog.args.expiry
-                );
-              }
-            }
-            
-            lastBlock = currentBlock;
-          }
-        } catch (error) {
-          console.error('Polling error:', error);
-        }
-      }, this.pollingInterval);
-
-      this.listeners.set(watcherId, { type: 'polling', intervalId });
-
-      return {
-        unsubscribe: () => {
-          clearInterval(intervalId);
-          this.activeWatchers.delete(watcherId);
-          this.listeners.delete(watcherId);
-        },
-        isActive: () => this.activeWatchers.has(watcherId),
-      };
-    }
+  watchIntents(callback: (intent: Intent) => void, filter?: EventFilter): EventWatcher {
+    return this.watchEvent(
+      'IntentSubmitted',
+      this.intentRegistry.filters.IntentSubmitted(),
+      async (intentId: string) => {
+        const intent = await this.getIntent(intentId);
+        callback(intent);
+      },
+      filter
+    );
   }
 
   watchFulfillments(
-    callback: (intentId: string, solver: string, protocolFee: bigint, fulfilledAt: number) => void,
+    callback: (intentId: string, solver: string, destAmount: bigint, paymentTxHash: string) => void,
     filter?: EventFilter
   ): EventWatcher {
-    const watcherId = `intent-fulfilled-${Date.now()}`;
-    this.activeWatchers.add(watcherId);
-
-    if (this.wsProvider) {
-      const eventFilter = this.intentRegistry.filters.IntentFulfilled();
-      const listener = (intentId: string, solver: string, protocolFee: bigint, fulfilledAt: number) => {
-        if (this.activeWatchers.has(watcherId)) {
-          callback(intentId, solver, protocolFee, fulfilledAt);
-        }
-      };
-
-      this.intentRegistry.on(eventFilter, listener);
-      this.listeners.set(watcherId, { type: 'websocket', listener, filter: eventFilter });
-
-      return {
-        unsubscribe: () => {
-          this.intentRegistry.off(eventFilter, listener);
-          this.activeWatchers.delete(watcherId);
-          this.listeners.delete(watcherId);
-        },
-        isActive: () => this.activeWatchers.has(watcherId),
-      };
-    } else {
-      // Fallback to polling
-      let lastBlock = filter?.fromBlock || -1;
-      const intervalId = setInterval(async () => {
-        if (!this.activeWatchers.has(watcherId)) return;
-        
-        try {
-          const currentBlock = await this.provider.getBlockNumber();
-          if (lastBlock === -1) {
-            lastBlock = currentBlock - 10;
-          }
-          
-          if (currentBlock > lastBlock) {
-            const events = await this.intentRegistry.queryFilter(
-              this.intentRegistry.filters.IntentFulfilled(),
-              lastBlock + 1,
-              currentBlock
-            );
-            
-            for (const event of events) {
-              const eventLog = event as any;
-              if (eventLog.args) {
-                callback(
-                  eventLog.args.intentId,
-                  eventLog.args.solver,
-                  eventLog.args.protocolFee,
-                  eventLog.args.fulfilledAt
-                );
-              }
-            }
-            
-            lastBlock = currentBlock;
-          }
-        } catch (error) {
-          console.error('Polling error:', error);
-        }
-      }, this.pollingInterval);
-
-      this.listeners.set(watcherId, { type: 'polling', intervalId });
-
-      return {
-        unsubscribe: () => {
-          clearInterval(intervalId);
-          this.activeWatchers.delete(watcherId);
-          this.listeners.delete(watcherId);
-        },
-        isActive: () => this.activeWatchers.has(watcherId),
-      };
-    }
+    return this.watchEvent(
+      'IntentFulfilled',
+      this.intentRegistry.filters.IntentFulfilled(),
+      (intentId: string, solver: string, destAmount: bigint, paymentTxHash: string) => {
+        callback(intentId, solver, destAmount, paymentTxHash);
+      },
+      filter
+    );
   }
 
-  watchCancellations(
-    callback: (intentId: string, user: string, refundedAmount: bigint, cancelledAt: number) => void
+  private watchEvent(
+    name: string,
+    eventFilter: any,
+    handler: (...args: any[]) => void,
+    filter?: EventFilter
   ): EventWatcher {
-    const watcherId = `intent-cancelled-${Date.now()}`;
+    const watcherId = `${name}-${Date.now()}`;
     this.activeWatchers.add(watcherId);
 
     if (this.wsProvider) {
-      const eventFilter = this.intentRegistry.filters.IntentCancelled();
-      const listener = (intentId: string, user: string, refundedAmount: bigint, cancelledAt: number) => {
-        if (this.activeWatchers.has(watcherId)) {
-          callback(intentId, user, refundedAmount, cancelledAt);
-        }
+      const listener = (...args: any[]) => {
+        if (this.activeWatchers.has(watcherId)) handler(...args);
       };
-
       this.intentRegistry.on(eventFilter, listener);
       this.listeners.set(watcherId, { type: 'websocket', listener, filter: eventFilter });
 
@@ -618,209 +325,66 @@ export class XDCIntentSDK {
         },
         isActive: () => this.activeWatchers.has(watcherId),
       };
-    } else {
-      // Fallback to polling
-      let lastBlock = -1;
-      const intervalId = setInterval(async () => {
-        if (!this.activeWatchers.has(watcherId)) return;
-        
-        try {
-          const currentBlock = await this.provider.getBlockNumber();
-          if (lastBlock === -1) {
-            lastBlock = currentBlock - 10;
+    }
+
+    let lastBlock = filter?.fromBlock || -1;
+    const intervalId = setInterval(async () => {
+      if (!this.activeWatchers.has(watcherId)) return;
+      try {
+        const currentBlock = await this.provider.getBlockNumber();
+        if (lastBlock === -1) lastBlock = currentBlock - 10;
+        if (currentBlock > lastBlock) {
+          const events = await this.intentRegistry.queryFilter(eventFilter, lastBlock + 1, currentBlock);
+          for (const event of events) {
+            const args = (event as ethers.EventLog).args;
+            if (args) handler(...args);
           }
-          
-          if (currentBlock > lastBlock) {
-            const events = await this.intentRegistry.queryFilter(
-              this.intentRegistry.filters.IntentCancelled(),
-              lastBlock + 1,
-              currentBlock
-            );
-            
-            for (const event of events) {
-              const eventLog = event as any;
-              if (eventLog.args) {
-                callback(
-                  eventLog.args.intentId,
-                  eventLog.args.user,
-                  eventLog.args.refundedAmount,
-                  eventLog.args.cancelledAt
-                );
-              }
-            }
-            
-            lastBlock = currentBlock;
-          }
-        } catch (error) {
-          console.error('Polling error:', error);
+          lastBlock = currentBlock;
         }
-      }, this.pollingInterval);
-
-      this.listeners.set(watcherId, { type: 'polling', intervalId });
-
-      return {
-        unsubscribe: () => {
-          clearInterval(intervalId);
-          this.activeWatchers.delete(watcherId);
-          this.listeners.delete(watcherId);
-        },
-        isActive: () => this.activeWatchers.has(watcherId),
-      };
-    }
-  }
-
-  async pollIntents(
-    userAddress?: string,
-    fromBlock?: number,
-    toBlock?: number
-  ): Promise<Intent[]> {
-    const filter = this.intentRegistry.filters.IntentCreated(userAddress);
-    const events = await this.intentRegistry.queryFilter(filter, fromBlock, toBlock);
-    
-    const intents: Intent[] = [];
-    for (const event of events) {
-      const eventLog = event as any;
-      const intentId = eventLog.args?.intentId;
-      if (intentId) {
-        const intent = await this.getIntent(intentId);
-        intents.push(intent);
+      } catch (error) {
+        console.error(`Polling error (${name}):`, error);
       }
-    }
-    
-    return intents;
-  }
+    }, this.pollingInterval);
 
-  cleanupAllListeners(): void {
-    this.intentRegistry.removeAllListeners();
-    this.listeners.forEach((listener, id) => {
-      if (listener.type === 'polling') {
-        clearInterval(listener.intervalId);
-      }
-    });
-    this.listeners.clear();
-    this.activeWatchers.clear();
-  }
+    this.listeners.set(watcherId, { type: 'polling', intervalId });
 
-  // ========== Transaction Retry ==========
+    return {
+      unsubscribe: () => {
+        clearInterval(intervalId);
+        this.activeWatchers.delete(watcherId);
+        this.listeners.delete(watcherId);
+      },
+      isActive: () => this.activeWatchers.has(watcherId),
+    };
+  }
 
   async submitWithRetry<T>(
     txFn: () => Promise<T>,
-    options: RetryOptions = {}
+    options: { maxRetries?: number; delayMs?: number } = {}
   ): Promise<T> {
     const maxRetries = options.maxRetries || 3;
     const delayMs = options.delayMs || 1000;
-    
     let lastError: Error | undefined;
-    
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         return await txFn();
       } catch (error: any) {
         lastError = error;
-        
-        // Don't retry on permanent errors
-        if (this.isPermanentError(error)) {
-          throw new Error(getUserFriendlyError(error.message) || error.message);
-        }
-        
-        // Call retry callback if provided
-        if (options.onRetry) {
-          options.onRetry(attempt + 1, error);
-        }
-        
-        // Wait before retry (exponential backoff)
+        if (this.isPermanentError(error)) throw error;
         if (attempt < maxRetries - 1) {
-          const waitTime = delayMs * Math.pow(2, attempt);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
+          await new Promise((resolve) => setTimeout(resolve, delayMs * 2 ** attempt));
         }
       }
     }
-    
-    throw new Error(getUserFriendlyError(lastError!.message) || lastError!.message);
+
+    throw lastError;
   }
 
   private isPermanentError(error: any): boolean {
-    const permanentErrors = [
-      'INSUFFICIENT_FUNDS',
-      'INVALID_SIGNATURE',
-      'REPLACEMENT_UNDERPRICED',
-      'UNPREDICTABLE_GAS_LIMIT',
-      'IntentRegistry: not intent owner',
-      'IntentRegistry: not pending',
-      'Escrow: token not supported',
-    ];
-    
-    return permanentErrors.some(err => error.message?.includes(err));
+    const msgs = ['INSUFFICIENT_FUNDS', 'INVALID_SIGNATURE', 'REPLACEMENT_UNDERPRICED', 'UNPREDICTABLE_GAS_LIMIT'];
+    return msgs.some((m) => error.message?.includes(m));
   }
-
-  // ========== Error Recovery ==========
-
-  async recover<T>(
-    operation: () => Promise<T>,
-    options: RetryOptions = {}
-  ): Promise<T> {
-    try {
-      return await operation();
-    } catch (error: any) {
-      if (this.isTransientError(error)) {
-        return this.submitWithRetry(operation, options);
-      }
-      throw error;
-    }
-  }
-
-  private isTransientError(error: any): boolean {
-    const transientErrors = [
-      'NETWORK_ERROR',
-      'TIMEOUT',
-      'NONCE_EXPIRED',
-      'SERVER_ERROR',
-      'ETIMEDOUT',
-      'ECONNREFUSED',
-    ];
-    
-    return transientErrors.some(err => error.message?.includes(err));
-  }
-
-  getUserMessage(error: Error): string {
-    return getUserFriendlyError(error.message) || error.message;
-  }
-
-  // ========== Admin Functions ==========
-
-  async setEscrow(newEscrow: string): Promise<ethers.TransactionResponse> {
-    return this.intentRegistry.setEscrow(newEscrow);
-  }
-
-  async setPaymentVerifier(newVerifier: string): Promise<ethers.TransactionResponse> {
-    return this.intentRegistry.setPaymentVerifier(newVerifier);
-  }
-
-  async addSupportedToken(token: string): Promise<ethers.TransactionResponse> {
-    return this.escrow.addSupportedToken(token);
-  }
-
-  async removeSupportedToken(token: string): Promise<ethers.TransactionResponse> {
-    return this.escrow.removeSupportedToken(token);
-  }
-
-  async addSigner(signer: string): Promise<ethers.TransactionResponse> {
-    return this.paymentVerifier.addSigner(signer);
-  }
-
-  async removeSigner(signer: string): Promise<ethers.TransactionResponse> {
-    return this.paymentVerifier.removeSigner(signer);
-  }
-
-  async pause(): Promise<ethers.TransactionResponse> {
-    return this.intentRegistry.pause();
-  }
-
-  async unpause(): Promise<ethers.TransactionResponse> {
-    return this.intentRegistry.unpause();
-  }
-
-  // ========== Utility ==========
 
   static parseEther(amount: string): bigint {
     return ethers.parseEther(amount);
@@ -830,23 +394,52 @@ export class XDCIntentSDK {
     return ethers.formatEther(amount);
   }
 
-  getAddresses(): { escrow: string; paymentVerifier: string; intentRegistry: string } {
-    return { ...this.addresses };
+  getProvider(): ethers.Provider {
+    return this.provider;
   }
 
-  isWebSocketConnected(): boolean {
-    return !!this.wsProvider;
+  getAddresses() {
+    return { ...this.addresses };
   }
 }
 
-export { IntentStatus, CHAIN_IDS, CONTRACT_ADDRESSES, getUserFriendlyError };
-export type {
-  CreateIntentInput,
-  FulfillIntentInput,
-  PaymentProof,
-  IntentInput,
-  Intent as IntentInfo,
-  CostEstimate as IntentCostEstimate,
-  RetryOptions as IntentRetryOptions,
-  EventWatcher as IntentEventWatcher,
-};
+export { CHAIN_IDS, CAIP2, CONTRACT_ADDRESSES, getUserFriendlyError };
+
+const EscrowABI = [
+  'function lockTokens(address token, uint256 amount, bytes32 intentId, address user) external',
+  'function releaseTokens(address token, uint256 amount, address recipient, bytes32 intentId) external',
+  'function refundTokens(bytes32 intentId) external',
+  'function setRegistry(address registry) external',
+  'function addAllowedToken(address token) external',
+  'function removeAllowedToken(address token) external',
+  'function isTokenAllowed(address token) external view returns (bool)',
+  'event TokensLocked(bytes32 indexed intentId, address indexed token, uint256 amount, address indexed user)',
+  'event TokensReleased(bytes32 indexed intentId, address indexed token, uint256 amount, address indexed recipient)',
+  'event TokensRefunded(bytes32 indexed intentId, address indexed token, uint256 amount, address indexed user)',
+];
+
+const PaymentVerifierABI = [
+  'function verifyPayment(bytes32 paymentTxHash, address payer, address payee, uint256 amount, bytes32 intentId) external returns (bool)',
+  'function registerFacilitator(address facilitator) external',
+  'function revokeFacilitator(address facilitator) external',
+  'function facilitators(address) external view returns (bool)',
+  'event PaymentVerified(bytes32 indexed intentId, address payer, uint256 amount)',
+  'event FacilitatorRegistered(address indexed facilitator)',
+  'event FacilitatorRevoked(address indexed facilitator)',
+];
+
+const IntentRegistryABI = [
+  'function submitIntent(tuple(uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, address[] allowedSolvers) intent, bytes signature) external returns (bytes32)',
+  'function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash) external returns (bool)',
+  'function cancelIntent(bytes32 intentId) external',
+  'function cancelExpiredIntents(bytes32[] intentIds) external',
+  'function getIntent(bytes32 intentId) external view returns (bytes32, address, uint256, address, uint256, uint256, address, uint256, uint256, uint256, uint256, address[], uint8, address, uint256, bytes32)',
+  'function getUserNonce(address user) external view returns (uint256)',
+  'function setPaymentVerifier(address verifier) external',
+  'function setEscrow(address escrow) external',
+  'function pause() external',
+  'function unpause() external',
+  'event IntentSubmitted(bytes32 indexed intentId, address indexed user, address sourceToken, uint256 sourceAmount, address destToken, uint256 minDestAmount, uint256 expiry)',
+  'event IntentFulfilled(bytes32 indexed intentId, address indexed solver, uint256 destAmount, bytes32 paymentTxHash)',
+  'event IntentCancelled(bytes32 indexed intentId, address indexed user, uint256 refundAmount)',
+];

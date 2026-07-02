@@ -1,8 +1,6 @@
 import { ethers } from 'ethers';
 import { Logger } from './logger';
 import { SolverConfig } from './config';
-import { FulfillmentPlan } from './strategies/xdc-only';
-import { PaymentProof } from './middleware-client';
 
 export class TransactionSubmitter {
   private provider: ethers.JsonRpcProvider;
@@ -10,104 +8,72 @@ export class TransactionSubmitter {
   private contract: ethers.Contract;
   private pendingNonce: number | null = null;
 
-  constructor(
-    private config: SolverConfig,
-    private logger: Logger
-  ) {
+  constructor(private config: SolverConfig, private logger: Logger) {
     this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
     this.signer = new ethers.Wallet(config.privateKey, this.provider);
 
     const abi = [
-      'function fulfillIntent(bytes32 intentId, tuple(bytes32 intentId, address solver, address token, uint256 amount, uint256 protocolFee, uint256 expiryTimestamp, uint256 chainId) calldata proof, bytes calldata signature) external',
-      'function getIntent(bytes32 intentId) external view returns (bytes32, address, address, uint256, uint256, uint8, address, uint256, uint256, uint256, uint256)',
+      'function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash) external returns (bool)',
+      'function getIntent(bytes32 intentId) external view returns (bytes32, address, uint256, address, uint256, uint256, address, uint256, uint256, uint256, uint256, address[], uint8, address, uint256, bytes32)',
     ];
-
     this.contract = new ethers.Contract(config.intentRegistryAddress, abi, this.signer);
   }
 
   async submitFulfillment(
-    plan: FulfillmentPlan,
-    proof: PaymentProof
+    intentId: string,
+    destAmount: bigint,
+    paymentTxHash: string
   ): Promise<{ success: boolean; txHash?: string; error?: string }> {
     try {
-      // Check gas price
-      const gasPrice = await this.provider.getFeeData();
+      const feeData = await this.provider.getFeeData();
       const maxGasPrice = ethers.parseUnits(this.config.maxGasPriceGwei.toString(), 'gwei');
-      
-      if (gasPrice.gasPrice && gasPrice.gasPrice > maxGasPrice) {
-        return {
-          success: false,
-          error: `Gas price too high: ${ethers.formatUnits(gasPrice.gasPrice, 'gwei')} gwei > ${this.config.maxGasPriceGwei} gwei`,
-        };
+      if (feeData.gasPrice && feeData.gasPrice > maxGasPrice) {
+        return { success: false, error: `Gas price too high` };
       }
 
-      // Get nonce
       const nonce = await this.getNonce();
+      const gasEstimate = await this.contract.fulfillIntent.estimateGas(intentId, destAmount, paymentTxHash);
+      const gasLimit = (gasEstimate * 120n) / 100n;
 
-      // Estimate gas
-      const gasEstimate = await this.contract.fulfillIntent.estimateGas(
-        plan.intentId,
-        proof.proof,
-        proof.signature
-      );
-
-      // Add 20% buffer
-      const gasLimit = gasEstimate * BigInt(120) / BigInt(100);
-
-      // Submit transaction
-      const tx = await this.contract.fulfillIntent(
-        plan.intentId,
-        proof.proof,
-        proof.signature,
-        {
-          gasLimit,
-          nonce,
-        }
-      );
-
-      this.logger.info(`Fulfillment submitted: ${tx.hash}`, {
-        intentId: plan.intentId,
-        gasLimit: gasLimit.toString(),
+      const tx = await this.contract.fulfillIntent(intentId, destAmount, paymentTxHash, {
+        gasLimit,
+        nonce,
       });
+      this.logger.info(`Fulfillment submitted: ${tx.hash}`, { intentId });
 
-      // Wait for confirmation
       const receipt = await tx.wait();
-
       if (receipt?.status === 1) {
-        this.logger.info(`Fulfillment confirmed: ${tx.hash}`);
         return { success: true, txHash: tx.hash };
-      } else {
-        return { success: false, error: 'Transaction failed' };
       }
+      return { success: false, error: 'Transaction failed' };
     } catch (error: any) {
-      // Handle specific errors
       if (error.message.includes('not open')) {
-        return { success: false, error: 'Intent already fulfilled by another solver' };
+        return { success: false, error: 'Intent already fulfilled' };
       }
       if (error.message.includes('nonce')) {
-        return { success: false, error: 'Nonce conflict - retrying' };
+        this.resetNonce();
+        return { success: false, error: 'Nonce conflict' };
       }
-      if (error.message.includes('gas')) {
-        return { success: false, error: `Gas estimation failed: ${error.message}` };
-      }
-
-      this.logger.error(`Fulfillment failed for intent ${plan.intentId}:`, error);
+      this.logger.error(`Fulfillment failed for ${intentId}:`, error.message);
       return { success: false, error: error.message };
     }
   }
 
   private async getNonce(): Promise<number> {
-    if (this.pendingNonce !== null) {
-      this.pendingNonce++;
-      return this.pendingNonce;
-    }
-
-    const nonce = await this.signer.getNonce();
-    this.pendingNonce = nonce;
-    return nonce;
+    if (this.pendingNonce !== null) return ++this.pendingNonce;
+    this.pendingNonce = await this.signer.getNonce();
+    return this.pendingNonce;
   }
 
   resetNonce(): void {
     this.pendingNonce = null;
+  }
+
+  getAddress(): string {
+    return this.signer.address;
+  }
+
+  getSigner(): ethers.Signer {
+    return this.signer;
   }
 }

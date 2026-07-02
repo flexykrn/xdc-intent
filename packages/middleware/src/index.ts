@@ -3,9 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { ethers } from 'ethers';
-import Database from 'better-sqlite3';
 import dotenv from 'dotenv';
-import { join } from 'path';
 
 dotenv.config();
 
@@ -15,38 +13,24 @@ const PORT = process.env.PORT || 3000;
 const RPC_URL = process.env.RPC_URL || 'https://erpc.apothem.network';
 const CHAIN_ID = parseInt(process.env.CHAIN_ID || '51');
 const SIGNER_KEY = process.env.MIDDLEWARE_SIGNER_PRIVATE_KEY || '';
-const API_KEY = process.env.MIDDLEWARE_API_KEY || 'testne...2024';
-const ESCROW_ADDRESS = process.env.ESCROW_ADDRESS || '';
+const API_KEY = process.env.MIDDLEWARE_API_KEY || 'testnet2024';
 const PAYMENT_VERIFIER_ADDRESS = process.env.PAYMENT_VERIFIER_ADDRESS || '';
 const INTENT_REGISTRY_ADDRESS = process.env.INTENT_REGISTRY_ADDRESS || '';
 
-// ========== Database Setup ==========
+// ========== In-Memory Store ==========
 
-const db = new Database(join(__dirname, '..', 'middleware.db'));
+interface StoredPayment {
+  intentId: string;
+  solverAddress: string;
+  amount: string;
+  nonce: string;
+  proof: string;
+  createdAt: number;
+}
 
-// Create tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS used_nonces (
-    nonce TEXT PRIMARY KEY,
-    created_at INTEGER DEFAULT (strftime('%s', 'now'))
-  );
-  
-  CREATE TABLE IF NOT EXISTS webhooks (
-    solver_address TEXT PRIMARY KEY,
-    url TEXT NOT NULL,
-    created_at INTEGER DEFAULT (strftime('%s', 'now'))
-  );
-  
-  CREATE TABLE IF NOT EXISTS payments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    intent_id TEXT NOT NULL,
-    solver_address TEXT NOT NULL,
-    amount TEXT NOT NULL,
-    nonce TEXT NOT NULL UNIQUE,
-    proof TEXT NOT NULL,
-    created_at INTEGER DEFAULT (strftime('%s', 'now'))
-  );
-`);
+const usedNonces = new Set<string>();
+const payments = new Map<string, StoredPayment>();
+const webhooks = new Map<string, string>();
 
 // ========== Metrics ==========
 
@@ -194,9 +178,8 @@ app.post('/v1/pay', apiKeyAuth, apiKeyLimiter, addressLimiter, async (req: Reque
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  // Check nonce replay
-  const nonceCheck = db.prepare('SELECT nonce FROM used_nonces WHERE nonce = ?').get(nonce);
-  if (nonceCheck) {
+// Check nonce replay
+  if (usedNonces.has(nonce)) {
     metrics.totalErrors++;
     return res.status(409).json({ error: 'Nonce already used. Replay detected.' });
   }
@@ -254,9 +237,15 @@ app.post('/v1/pay', apiKeyAuth, apiKeyLimiter, addressLimiter, async (req: Reque
     const proofSignature = await signer.signTypedData(domain, types, proofPayload);
 
     // Store nonce and payment
-    db.prepare('INSERT INTO used_nonces (nonce) VALUES (?)').run(nonce);
-    db.prepare('INSERT INTO payments (intent_id, solver_address, amount, nonce, proof) VALUES (?, ?, ?, ?, ?)')
-      .run(intentId, solverAddress, amount, nonce, proofSignature);
+    usedNonces.add(nonce);
+    payments.set(`${intentId}-${solverAddress}`, {
+      intentId,
+      solverAddress,
+      amount,
+      nonce,
+      proof: proofSignature,
+      createdAt: Math.floor(Date.now() / 1000),
+    });
 
     metrics.proofsIssued++;
     metrics.paymentsAccepted++;
@@ -337,8 +326,7 @@ app.post('/v1/webhooks', apiKeyAuth, (req: Request, res: Response) => {
   }
 
   try {
-    db.prepare('INSERT OR REPLACE INTO webhooks (solver_address, url) VALUES (?, ?)')
-      .run(solverAddress, url);
+    webhooks.set(solverAddress.toLowerCase(), url);
     res.json({ success: true, solverAddress, url });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -362,20 +350,20 @@ app.post('/v1/refund', apiKeyAuth, async (req: Request, res: Response) => {
     }
 
     // Check payment exists
-    const payment = db.prepare('SELECT * FROM payments WHERE intent_id = ? AND solver_address = ?').get(intentId, solverAddress);
+    const payment = payments.get(`${intentId}-${solverAddress}`);
     if (!payment) {
       return res.status(404).json({ error: 'Payment not found' });
     }
 
     // Check refund period (24 hours)
-    const paymentTime = (payment as any).created_at;
+    const paymentTime = payment.createdAt;
     const now = Math.floor(Date.now() / 1000);
     if (now - paymentTime > 86400) {
       return res.status(400).json({ error: 'Refund period expired (24 hours)' });
     }
 
     metrics.refundsIssued++;
-    sendWebhook(solverAddress, 'payment_refunded', { intentId, solverAddress, amount: (payment as any).amount });
+    sendWebhook(solverAddress, 'payment_refunded', { intentId, solverAddress, amount: payment.amount });
 
     res.json({ success: true, message: 'Refund processed', intentId, solverAddress });
   } catch (error: any) {
@@ -387,8 +375,8 @@ app.post('/v1/refund', apiKeyAuth, async (req: Request, res: Response) => {
 
 async function sendWebhook(solverAddress: string, eventType: string, payload: any) {
   try {
-    const webhook = db.prepare('SELECT url FROM webhooks WHERE solver_address = ?').get(solverAddress) as any;
-    if (!webhook) return;
+    const url = webhooks.get(solverAddress.toLowerCase());
+    if (!url) return;
 
     const webhookPayload = {
       eventType,
@@ -400,7 +388,7 @@ async function sendWebhook(solverAddress: string, eventType: string, payload: an
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), parseInt(process.env.WEBHOOK_TIMEOUT || '5000'));
 
-    await fetch(webhook.url, {
+    await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(webhookPayload),
@@ -425,8 +413,6 @@ const gracefulShutdown = () => {
   
   server.close(() => {
     console.log('HTTP server closed');
-    db.close();
-    console.log('Database closed');
     process.exit(0);
   });
 

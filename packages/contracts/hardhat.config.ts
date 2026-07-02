@@ -1,10 +1,10 @@
-import { HardhatUserConfig } from "hardhat/config";
+import { HardhatUserConfig } from "hardhat/config.js";
 import "@nomicfoundation/hardhat-toolbox";
 import "hardhat-deploy";
-import '@nomicfoundation/hardhat-verify';
-import 'hardhat-gas-reporter';
-import 'solidity-coverage';
-import * as dotenv from 'dotenv';
+import "@nomicfoundation/hardhat-verify";
+import "hardhat-gas-reporter";
+import "solidity-coverage";
+import * as dotenv from "dotenv";
 
 dotenv.config();
 
@@ -22,7 +22,7 @@ const config: HardhatUserConfig = {
         },
       },
       {
-        version: '0.8.20',
+        version: '0.8.24',
         settings: {
           optimizer: {
             enabled: true,

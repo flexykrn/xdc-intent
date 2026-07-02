@@ -1,13 +1,17 @@
-"use client";
-
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, ArrowDown, Wallet, AlertCircle, CheckCircle, Zap, Clock, Info } from "lucide-react";
 import { useWallet } from "@/components/providers";
+import { XDCIntentSDK, IntentParams } from "@xdc-intent/sdk";
 import { ethers } from "ethers";
-import { CONTRACTS, INTENT_REGISTRY_ABI } from "@/lib/contracts";
 import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { ChevronDown, Wallet, AlertCircle, CheckCircle, Zap, Clock } from "lucide-react";
+
+interface TokenInfo {
+  symbol: string;
+  name: string;
+  address: string;
+}
 
 const expiryOptions = [
   { label: "1 hour", value: "1h", seconds: 3600 },
@@ -16,20 +20,22 @@ const expiryOptions = [
   { label: "3 days", value: "3d", seconds: 259200 },
 ];
 
-const tokens = [
-  { symbol: "XDC", name: "XDC Network", icon: "⚡", address: "0x0000000000000000000000000000000000000000", balance: 12345.67 },
-  { symbol: "MOCK", name: "Mock Token", icon: "🪙", address: "0x1111111111111111111111111111111111111111", balance: 5000 },
-  { symbol: "USDC", name: "USD Coin", icon: "💲", address: "0x2222222222222222222222222222222222222222", balance: 2500 },
+const tokens: TokenInfo[] = [
+  { symbol: "XDC", name: "XDC Network", address: "0x0000000000000000000000000000000000000000" },
+  { symbol: "MUSDC", name: "Mock USDC", address: "0x951857744785f80e2d4013e0d0814c1356412440" },
 ];
 
 export default function CreatePage() {
-  const { isConnected, signer, address } = useWallet();
+  const { isConnected, sdk, address } = useWallet();
   const router = useRouter();
   const [fromToken, setFromToken] = useState(tokens[0]);
-  const [toToken, setToToken] = useState(tokens[2]);
+  const [toToken, setToToken] = useState(tokens[1]);
   const [fromAmount, setFromAmount] = useState("");
   const [minOutput, setMinOutput] = useState("");
+  const [maxSolverFee, setMaxSolverFee] = useState("0.5");
   const [expiry, setExpiry] = useState("24h");
+  const [sourceChainId, setSourceChainId] = useState(51);
+  const [destChainId, setDestChainId] = useState(51);
   const [showFromDropdown, setShowFromDropdown] = useState(false);
   const [showToDropdown, setShowToDropdown] = useState(false);
   const [showExpiryDropdown, setShowExpiryDropdown] = useState(false);
@@ -37,11 +43,11 @@ export default function CreatePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleCreateIntent = async () => {
-    if (!isConnected || !signer || !address) {
+    if (!isConnected || !sdk || !address) {
       toast.error("Please connect your wallet first");
       return;
     }
-    if (!fromAmount || parseFloat(fromAmount) <= 0) {
+    if (!fromAmount || parseFloat(fromAmount) <= 0 || !minOutput || parseFloat(minOutput) <= 0) {
       setStatus("error");
       setTimeout(() => setStatus("idle"), 3000);
       return;
@@ -49,15 +55,23 @@ export default function CreatePage() {
 
     setIsSubmitting(true);
     try {
-      const registry = new ethers.Contract(CONTRACTS.intentRegistry, INTENT_REGISTRY_ABI, signer);
-      const intentId = ethers.keccak256(ethers.toUtf8Bytes(`${address}-${Date.now()}`));
-      const amountWei = ethers.parseEther(fromAmount);
       const expirySeconds = expiryOptions.find((o) => o.value === expiry)?.seconds || 86400;
       const expiryTimestamp = Math.floor(Date.now() / 1000) + expirySeconds;
+      const nonce = Number(await sdk.getUserNonce(address)) + 1;
 
-      const tx = await registry.createIntent(intentId, fromToken.address, amountWei, expiryTimestamp, {
-        value: fromToken.address === "0x0000000000000000000000000000000000000000" ? amountWei : 0,
-      });
+      const params: IntentParams = {
+        sourceChainId,
+        sourceToken: fromToken.address,
+        sourceAmount: ethers.parseEther(fromAmount),
+        destChainId,
+        destToken: toToken.address,
+        minDestAmount: ethers.parseEther(minOutput),
+        maxSolverFee: ethers.parseEther(maxSolverFee),
+        expiry: expiryTimestamp,
+        nonce,
+      };
+
+      const tx = await sdk.submitIntent(await sdk.signIntent(address, params));
       toast.loading("Creating intent...", { id: "create" });
       await tx.wait();
       toast.success("Intent created successfully", { id: "create" });
@@ -90,24 +104,8 @@ export default function CreatePage() {
               <span className="text-gradient">swap.</span>
             </h1>
             <p className="text-lg text-[var(--ink-2)] leading-relaxed mb-10">
-              Set the token you want to spend, the minimum you expect back, and how long solvers have to fill it.
+              Set the token you want to spend, the minimum you expect back, max solver fee, and expiry.
             </p>
-
-            <div className="space-y-3">
-              {[
-                { icon: <Zap size={18} />, title: "Competitive pricing", desc: "Multiple solvers bid to fill your intent" },
-                { icon: <Clock size={18} />, title: "Expiry protection", desc: "Intent auto-expires if not filled in time" },
-                { icon: <Info size={18} />, title: "Transparent fees", desc: "Protocol fee is 0.05% on filled intents" },
-              ].map((item) => (
-                <div key={item.title} className="flex items-start gap-4 p-4 rounded-2xl surface">
-                  <div className="text-[var(--accent)] mt-0.5">{item.icon}</div>
-                  <div>
-                    <div className="text-sm font-semibold text-[var(--ink)]">{item.title}</div>
-                    <div className="text-xs text-[var(--ink-3)]">{item.desc}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
           </motion.div>
 
           <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 }} className="lg:col-span-3">
@@ -121,127 +119,62 @@ export default function CreatePage() {
                 </div>
               )}
 
-              <div className="mb-2">
-                <div className="flex items-center justify-between mb-3">
-                  <label className="text-sm font-medium text-[var(--ink-3)]">You send</label>
-                  <span className="text-xs flex items-center gap-1.5 text-[var(--ink-3)] font-mono">
-                    <Wallet size={12} />
-                    {fromToken.balance.toLocaleString()} {fromToken.symbol}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3 p-4 rounded-2xl surface-subtle">
-                  <div className="relative">
-                    <motion.button
-                      onClick={() => { setShowFromDropdown(!showFromDropdown); setShowToDropdown(false); setShowExpiryDropdown(false); }}
-                      className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--border-2)] transition-colors"
-                      whileTap={{ scale: 0.98 }}
-                    >
-                      <span className="text-xl">{fromToken.icon}</span>
-                      <span className="font-bold text-sm text-[var(--ink)]">{fromToken.symbol}</span>
-                      <ChevronDown size={14} className="text-[var(--ink-3)]" />
-                    </motion.button>
-                    <AnimatePresence>
-                      {showFromDropdown && (
-                        <motion.div
-                          initial={{ opacity: 0, y: -8, scale: 0.95 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: -8, scale: 0.95 }}
-                          className="absolute top-full left-0 mt-2 w-52 rounded-2xl overflow-hidden z-50 surface"
-                        >
-                          {tokens.map((token) => (
-                            <button
-                              key={token.symbol}
-                              onClick={() => { setFromToken(token); setShowFromDropdown(false); }}
-                              className="w-full flex items-center gap-3 px-4 py-3 transition-colors text-left hover:bg-[var(--bg-3)]"
-                            >
-                              <span className="text-xl">{token.icon}</span>
-                              <div>
-                                <div className="text-sm font-semibold text-[var(--ink)]">{token.symbol}</div>
-                                <div className="text-xs text-[var(--ink-3)]">{token.name}</div>
-                              </div>
-                            </button>
-                          ))}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="text-sm font-medium text-[var(--ink-3)] mb-2 block">Source chain</label>
                   <input
                     type="number"
-                    value={fromAmount}
-                    onChange={(e) => setFromAmount(e.target.value)}
-                    placeholder="0.00"
-                    className="flex-1 bg-transparent text-2xl font-bold text-right outline-none text-[var(--ink)] placeholder:text-[var(--ink-4)] font-mono-nums"
+                    value={sourceChainId}
+                    onChange={(e) => setSourceChainId(Number(e.target.value))}
+                    className="w-full p-3 rounded-xl surface-subtle bg-transparent text-[var(--ink)] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-[var(--ink-3)] mb-2 block">Dest chain</label>
+                  <input
+                    type="number"
+                    value={destChainId}
+                    onChange={(e) => setDestChainId(Number(e.target.value))}
+                    className="w-full p-3 rounded-xl surface-subtle bg-transparent text-[var(--ink)] outline-none"
                   />
                 </div>
               </div>
 
-              <div className="flex justify-center my-4">
-                <motion.button
-                  onClick={() => { const temp = fromToken; setFromToken(toToken); setToToken(temp); }}
-                  className="w-10 h-10 rounded-xl flex items-center justify-center surface-subtle border border-[var(--border)] hover:border-[var(--border-2)]"
-                  whileHover={{ scale: 1.1, rotate: 180 }}
-                  whileTap={{ scale: 0.9 }}
-                  transition={{ type: "spring", stiffness: 400 }}
-                >
-                  <ArrowDown size={18} className="text-[var(--accent)]" />
-                </motion.button>
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-medium text-[var(--ink-3)]">You send</label>
+                </div>
+                <div className="flex items-center gap-3 p-4 rounded-2xl surface-subtle">
+                  <TokenSelector selected={fromToken} tokens={tokens} onSelect={(t) => { setFromToken(t); setShowFromDropdown(false); }} show={showFromDropdown} setShow={setShowFromDropdown} />
+                  <input type="number" value={fromAmount} onChange={(e) => setFromAmount(e.target.value)} placeholder="0.00" className="flex-1 bg-transparent text-2xl font-bold text-right outline-none text-[var(--ink)] placeholder:text-[var(--ink-4)] font-mono-nums" />
+                </div>
               </div>
 
-              <div className="mb-6">
+              <div className="mb-4">
                 <div className="flex items-center justify-between mb-3">
                   <label className="text-sm font-medium text-[var(--ink-3)]">You receive at least</label>
                 </div>
                 <div className="flex items-center gap-3 p-4 rounded-2xl surface-subtle">
-                  <div className="relative">
-                    <motion.button
-                      onClick={() => { setShowToDropdown(!showToDropdown); setShowFromDropdown(false); setShowExpiryDropdown(false); }}
-                      className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--border-2)] transition-colors"
-                      whileTap={{ scale: 0.98 }}
-                    >
-                      <span className="text-xl">{toToken.icon}</span>
-                      <span className="font-bold text-sm text-[var(--ink)]">{toToken.symbol}</span>
-                      <ChevronDown size={14} className="text-[var(--ink-3)]" />
-                    </motion.button>
-                    <AnimatePresence>
-                      {showToDropdown && (
-                        <motion.div
-                          initial={{ opacity: 0, y: -8, scale: 0.95 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: -8, scale: 0.95 }}
-                          className="absolute top-full left-0 mt-2 w-52 rounded-2xl overflow-hidden z-50 surface"
-                        >
-                          {tokens.map((token) => (
-                            <button
-                              key={token.symbol}
-                              onClick={() => { setToToken(token); setShowToDropdown(false); }}
-                              className="w-full flex items-center gap-3 px-4 py-3 transition-colors text-left hover:bg-[var(--bg-3)]"
-                            >
-                              <span className="text-xl">{token.icon}</span>
-                              <div>
-                                <div className="text-sm font-semibold text-[var(--ink)]">{token.symbol}</div>
-                                <div className="text-xs text-[var(--ink-3)]">{token.name}</div>
-                              </div>
-                            </button>
-                          ))}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                  <input
-                    type="number"
-                    value={minOutput}
-                    onChange={(e) => setMinOutput(e.target.value)}
-                    placeholder="0.00"
-                    className="flex-1 bg-transparent text-2xl font-bold text-right outline-none text-[var(--ink)] placeholder:text-[var(--ink-4)] font-mono-nums"
-                  />
+                  <TokenSelector selected={toToken} tokens={tokens} onSelect={(t) => { setToToken(t); setShowToDropdown(false); }} show={showToDropdown} setShow={setShowToDropdown} />
+                  <input type="number" value={minOutput} onChange={(e) => setMinOutput(e.target.value)} placeholder="0.00" className="flex-1 bg-transparent text-2xl font-bold text-right outline-none text-[var(--ink)] placeholder:text-[var(--ink-4)] font-mono-nums" />
                 </div>
+              </div>
+
+              <div className="mb-4">
+                <label className="text-sm font-medium text-[var(--ink-3)] mb-2 block">Max solver fee</label>
+                <input
+                  type="number"
+                  value={maxSolverFee}
+                  onChange={(e) => setMaxSolverFee(e.target.value)}
+                  className="w-full p-3 rounded-xl surface-subtle bg-transparent text-[var(--ink)] outline-none"
+                />
               </div>
 
               <div className="mb-6">
                 <label className="text-sm font-medium text-[var(--ink-3)] mb-3 block">Intent expiry</label>
                 <div className="relative">
                   <motion.button
-                    onClick={() => { setShowExpiryDropdown(!showExpiryDropdown); setShowFromDropdown(false); setShowToDropdown(false); }}
+                    onClick={() => setShowExpiryDropdown(!showExpiryDropdown)}
                     className="w-full flex items-center justify-between p-4 rounded-2xl surface-subtle"
                     whileTap={{ scale: 0.99 }}
                   >
@@ -253,12 +186,7 @@ export default function CreatePage() {
                   </motion.button>
                   <AnimatePresence>
                     {showExpiryDropdown && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -8, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: -8, scale: 0.95 }}
-                        className="absolute top-full left-0 right-0 mt-2 rounded-2xl overflow-hidden z-50 surface"
-                      >
+                      <motion.div initial={{ opacity: 0, y: -8, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.95 }} className="absolute top-full left-0 right-0 mt-2 rounded-2xl overflow-hidden z-50 surface">
                         {expiryOptions.map((option) => (
                           <button
                             key={option.value}
@@ -271,21 +199,6 @@ export default function CreatePage() {
                       </motion.div>
                     )}
                   </AnimatePresence>
-                </div>
-              </div>
-
-              <div className="p-4 rounded-2xl mb-6 surface-subtle">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-[var(--ink-3)]">Protocol fee</span>
-                  <span className="text-sm font-medium text-[var(--ink)]">0.05%</span>
-                </div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-[var(--ink-3)]">Gas (estimated)</span>
-                  <span className="text-sm font-medium text-[var(--ink)]">~0 XDC</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-[var(--ink-3)]">Slippage</span>
-                  <span className="text-sm font-medium text-[var(--ink)]">0%</span>
                 </div>
               </div>
 
@@ -311,22 +224,59 @@ export default function CreatePage() {
                 whileHover={!isSubmitting ? { scale: 1.01 } : {}}
                 whileTap={!isSubmitting ? { scale: 0.99 } : {}}
               >
-                {isSubmitting ? (
-                  <>
-                    <motion.div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full" animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} />
-                    Creating Intent...
-                  </>
-                ) : (
-                  <>
-                    <Zap size={18} />
-                    Create Intent
-                  </>
+                {isSubmitting ? "Creating Intent..." : (
+                  <span className="flex items-center gap-2"><Zap size={18} /> Create Intent</span>
                 )}
               </motion.button>
             </div>
           </motion.div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function TokenSelector({
+  selected,
+  tokens,
+  onSelect,
+  show,
+  setShow,
+}: {
+  selected: TokenInfo;
+  tokens: TokenInfo[];
+  onSelect: (t: TokenInfo) => void;
+  show: boolean;
+  setShow: (v: boolean) => void;
+}) {
+  return (
+    <div className="relative">
+      <motion.button
+        onClick={() => setShow(!show)}
+        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--border-2)] transition-colors"
+        whileTap={{ scale: 0.98 }}
+      >
+        <span className="font-bold text-sm text-[var(--ink)]">{selected.symbol}</span>
+        <ChevronDown size={14} className="text-[var(--ink-3)]" />
+      </motion.button>
+      <AnimatePresence>
+        {show && (
+          <motion.div initial={{ opacity: 0, y: -8, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.95 }} className="absolute top-full left-0 mt-2 w-52 rounded-2xl overflow-hidden z-50 surface">
+            {tokens.map((token) => (
+              <button
+                key={token.symbol}
+                onClick={() => onSelect(token)}
+                className="w-full flex items-center gap-3 px-4 py-3 transition-colors text-left hover:bg-[var(--bg-3)]"
+              >
+                <div>
+                  <div className="text-sm font-semibold text-[var(--ink)]">{token.symbol}</div>
+                  <div className="text-xs text-[var(--ink-3)]">{token.name}</div>
+                </div>
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,44 +1,36 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useWallet } from "@/components/providers";
-import { CONTRACTS, INTENT_REGISTRY_ABI, RPC_URL } from "@/lib/contracts";
-import { ethers } from "ethers";
+import { Intent, IntentStatus } from "@xdc-intent/sdk";
 import Link from "next/link";
 import { Clock, CheckCircle, XCircle, Loader2, AlertTriangle, ArrowRight, Wallet } from "lucide-react";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";
-
-interface IntentItem {
-  id: string;
-  intent: any;
-}
+import { useEffect, useState } from "react";
+import { ethers } from "ethers";
 
 export default function MyIntentsPage() {
-  const { address, isConnected, signer } = useWallet();
-  const [intents, setIntents] = useState<IntentItem[]>([]);
+  const { address, isConnected, sdk } = useWallet();
+  const [intents, setIntents] = useState<Intent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
 
   async function fetchIntents() {
-    if (!address) return;
+    if (!sdk || !address) return;
     try {
       setError(null);
-      const provider = new ethers.JsonRpcProvider(RPC_URL);
-      const registry = new ethers.Contract(CONTRACTS.intentRegistry, INTENT_REGISTRY_ABI, provider);
-      const intentIds = await registry.getUserIntents(address);
+      const ids = await sdk.intentRegistry.getUserIntents(address);
       const details = await Promise.all(
-        intentIds.map(async (id: string) => {
+        ids.map(async (id: string) => {
           try {
-            const intent = await registry.getIntent(id);
-            return { id, intent };
+            return await sdk.getIntent(id);
           } catch {
             return null;
           }
         })
       );
-      setIntents(details.filter((d): d is IntentItem => Boolean(d)));
+      setIntents(details.filter((d): d is Intent => Boolean(d)));
     } catch (e: any) {
       console.error("Failed to fetch intents", e);
       setError(e.message || "Failed to fetch your intents");
@@ -48,11 +40,10 @@ export default function MyIntentsPage() {
   }
 
   async function handleCancel(id: string) {
-    if (!signer) return;
+    if (!sdk) return;
     setCancelling(id);
     try {
-      const registry = new ethers.Contract(CONTRACTS.intentRegistry, INTENT_REGISTRY_ABI, signer);
-      const tx = await registry.cancelIntent(id);
+      const tx = await sdk.cancelIntent(id);
       toast.loading("Cancelling intent...", { id: "cancel" });
       await tx.wait();
       toast.success("Intent cancelled", { id: "cancel" });
@@ -65,14 +56,14 @@ export default function MyIntentsPage() {
   }
 
   useEffect(() => {
-    if (!address) {
+    if (!address || !sdk) {
       setLoading(false);
       return;
     }
     fetchIntents();
     const interval = setInterval(fetchIntents, 30000);
     return () => clearInterval(interval);
-  }, [address]);
+  }, [address, sdk]);
 
   if (!isConnected) {
     return (
@@ -130,9 +121,9 @@ export default function MyIntentsPage() {
 
         {!loading && intents.length > 0 && (
           <div className="space-y-4">
-            {intents.map((item, i) => (
+            {intents.map((intent, i) => (
               <motion.div
-                key={item.id}
+                key={intent.intentId}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}
@@ -140,29 +131,25 @@ export default function MyIntentsPage() {
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-4">
-                    <StatusBadge status={Number(item.intent[7])} />
+                    <StatusBadge status={intent.status} />
                     <div>
-                      <div className="font-mono text-xs text-[var(--ink-3)] mb-1">{item.id.slice(0, 18)}...</div>
-                      <div className="text-lg font-semibold text-[var(--ink)]">{ethers.formatEther(item.intent[4])} XDC</div>
+                      <div className="font-mono text-xs text-[var(--ink-3)] mb-1">{intent.intentId.slice(0, 18)}...</div>
+                      <div className="text-lg font-semibold text-[var(--ink)]">{ethers.formatEther(intent.sourceAmount)} → {ethers.formatEther(intent.minDestAmount)}</div>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-6 sm:gap-10">
                     <div>
-                      <div className="text-xs text-[var(--ink-3)] mb-1">Token</div>
-                      <div className="font-mono text-sm text-[var(--ink)]">{item.intent[3].slice(0, 10)}...</div>
-                    </div>
-                    <div>
                       <div className="text-xs text-[var(--ink-3)] mb-1">Expiry</div>
-                      <div className="font-mono text-sm text-[var(--ink)]">{new Date(Number(item.intent[6]) * 1000).toLocaleDateString()}</div>
+                      <div className="font-mono text-sm text-[var(--ink)]">{new Date(intent.expiry * 1000).toLocaleDateString()}</div>
                     </div>
-                    {Number(item.intent[7]) === 0 && (
+                    {intent.status === IntentStatus.Open && (
                       <button
-                        onClick={() => handleCancel(item.id)}
-                        disabled={cancelling === item.id}
+                        onClick={() => handleCancel(intent.intentId)}
+                        disabled={cancelling === intent.intentId}
                         className="px-4 py-2 rounded-xl text-sm font-semibold text-red-500 border border-red-500/20 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                       >
-                        {cancelling === item.id ? <Loader2 className="w-4 h-4 animate-spin inline" /> : "Cancel"}
+                        {cancelling === intent.intentId ? <Loader2 className="w-4 h-4 animate-spin inline" /> : "Cancel"}
                       </button>
                     )}
                   </div>
@@ -176,17 +163,23 @@ export default function MyIntentsPage() {
   );
 }
 
-function StatusBadge({ status }: { status: number }) {
+function StatusBadge({ status }: { status: IntentStatus }) {
   switch (status) {
-    case 0:
-      return <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/10 text-yellow-600 rounded-full text-xs font-medium border border-yellow-500/20"><Clock className="w-3 h-3" />Pending</span>;
-    case 1:
+    case IntentStatus.Open:
+      return <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/10 text-yellow-600 rounded-full text-xs font-medium border border-yellow-500/20"><Clock className="w-3 h-3" />Open</span>;
+    case IntentStatus.Fulfilled:
       return <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 text-emerald-600 rounded-full text-xs font-medium border border-emerald-500/20"><CheckCircle className="w-3 h-3" />Filled</span>;
-    case 2:
-      return <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-500/10 text-gray-500 rounded-full text-xs font-medium border border-gray-500/20">Cancelled</span>;
-    case 3:
-      return <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 text-red-500 rounded-full text-xs font-medium border border-red-500/20"><XCircle className="w-3 h-3" />Expired</span>;
+    case IntentStatus.Cancelled:
+      return <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-500/10 text-gray-500 rounded-full text-xs font-medium border border-gray-500/20"><XCircle className="w-3 h-3" />Cancelled</span>;
     default:
       return <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-500/10 text-gray-500 rounded-full text-xs font-medium border border-gray-500/20">Unknown</span>;
+  }
+}
+
+function formatAmount(amount: bigint): string {
+  try {
+    return Number(amount) / 1e18 + "";
+  } catch {
+    return amount.toString();
   }
 }

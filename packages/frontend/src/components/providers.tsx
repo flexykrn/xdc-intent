@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { ethers } from "ethers";
+import { XDCIntentSDK } from "@xdc-intent/sdk";
 import { RPC_URL } from "@/lib/contracts";
 
 interface WalletContextType {
@@ -12,6 +13,7 @@ interface WalletContextType {
   disconnect: () => void;
   provider: ethers.BrowserProvider | null;
   signer: ethers.JsonRpcSigner | null;
+  sdk: XDCIntentSDK | null;
 }
 
 const WalletContext = createContext<WalletContextType>({
@@ -22,6 +24,7 @@ const WalletContext = createContext<WalletContextType>({
   disconnect: () => {},
   provider: null,
   signer: null,
+  sdk: null,
 });
 
 export function WalletProvider({ children }: { children: ReactNode }) {
@@ -30,6 +33,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [provider, setProvider] = useState<ethers.BrowserProvider | null>(null);
   const [signer, setSigner] = useState<ethers.JsonRpcSigner | null>(null);
+  const [sdk, setSdk] = useState<XDCIntentSDK | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined" && (window as any).ethereum) {
@@ -39,7 +43,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           disconnect();
         } else {
           setAddress(accounts[0]);
-          setIsConnected(true);
         }
       });
       eth.on("chainChanged", () => {
@@ -58,20 +61,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try {
       const eth = (window as any).ethereum;
       const accounts = await eth.request({ method: "eth_requestAccounts" });
-
-      if (accounts.length === 0) {
-        throw new Error("No accounts found");
-      }
+      if (accounts.length === 0) throw new Error("No accounts found");
 
       const browserProvider = new ethers.BrowserProvider(eth);
       const network = await browserProvider.getNetwork();
 
       if (Number(network.chainId) !== 51) {
         try {
-          await eth.request({
-            method: "wallet_switchEthereumChain",
-            params: [{ chainId: "0x33" }],
-          });
+          await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x33" }] });
         } catch {
           await eth.request({
             method: "wallet_addEthereumChain",
@@ -87,8 +84,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
 
       const newSigner = await browserProvider.getSigner();
+      const newSdk = new XDCIntentSDK({
+        provider: browserProvider,
+        signer: newSigner,
+        chainId: 51,
+      });
+
       setProvider(browserProvider);
       setSigner(newSigner);
+      setSdk(newSdk);
       setAddress(accounts[0]);
       setIsConnected(true);
     } catch (error: any) {
@@ -104,10 +108,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setIsConnected(false);
     setProvider(null);
     setSigner(null);
+    setSdk(null);
   };
 
   return (
-    <WalletContext.Provider value={{ address, isConnected, isConnecting, connect, disconnect, provider, signer }}>
+    <WalletContext.Provider value={{ address, isConnected, isConnecting, connect, disconnect, provider, signer, sdk }}>
       {children}
     </WalletContext.Provider>
   );

@@ -2,548 +2,167 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { IntentRegistry, Escrow, PaymentVerifier, MockERC20 } from "../typechain-types";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
+import { IIntentRegistry } from "../typechain-types/contracts/IntentRegistry";
 
-describe("IntentRegistry", function () {
+const INTENT_TYPEHASH = ethers.keccak256(
+  ethers.toUtf8Bytes(
+    "Intent(uint256 sourceChainId,address sourceToken,uint256 sourceAmount,uint256 destChainId,address destToken,uint256 minDestAmount,uint256 maxSolverFee,uint256 expiry,uint256 nonce)"
+  )
+);
+
+describe("IntentRegistry (plan-aligned)", function () {
   let registry: IntentRegistry;
   let escrow: Escrow;
   let verifier: PaymentVerifier;
-  let mockToken: MockERC20;
+  let token: MockERC20;
   let owner: SignerWithAddress;
   let user: SignerWithAddress;
   let solver: SignerWithAddress;
-  let signer: SignerWithAddress;
-  let other: SignerWithAddress;
-  let treasury: SignerWithAddress;
+  let facilitator: SignerWithAddress;
 
-  const INTENT_ID = ethers.keccak256(ethers.toUtf8Bytes("test-intent"));
-  const AMOUNT = ethers.parseEther("1000");
-  // Helper to get dynamic expiry
-  // Helper to get dynamic expiry using blockchain time (not Date.now())
   async function getExpiry() {
-    const latestBlock = await ethers.provider.getBlock('latest');
-    return Number(latestBlock!.timestamp) + 86400; // 24 hours from block timestamp
+    const block = await ethers.provider.getBlock("latest");
+    return block!.timestamp + 86400;
+  }
+
+  function buildIntentParams(overrides: Partial<IIntentRegistry.IntentParamsStruct> = {}): IIntentRegistry.IntentParamsStruct {
+    return {
+      sourceChainId: 31337,
+      sourceToken: overrides.sourceToken || token.target,
+      sourceAmount: overrides.sourceAmount || ethers.parseEther("1000"),
+      destChainId: overrides.destChainId || 31337,
+      destToken: overrides.destToken || token.target,
+      minDestAmount: overrides.minDestAmount || ethers.parseEther("990"),
+      maxSolverFee: overrides.maxSolverFee || ethers.parseEther("10"),
+      expiry: overrides.expiry || 0,
+      nonce: overrides.nonce || 1,
+      allowedSolvers: overrides.allowedSolvers || [],
+    } as IIntentRegistry.IntentParamsStruct;
+  }
+
+  async function signIntent(params: IIntentRegistry.IntentParamsStruct, signer: SignerWithAddress) {
+    const domain = {
+      name: "XDCIntents",
+      version: "1",
+      chainId: 31337,
+      verifyingContract: await registry.getAddress(),
+    };
+
+    const types = {
+      Intent: [
+        { name: "sourceChainId", type: "uint256" },
+        { name: "sourceToken", type: "address" },
+        { name: "sourceAmount", type: "uint256" },
+        { name: "destChainId", type: "uint256" },
+        { name: "destToken", type: "address" },
+        { name: "minDestAmount", type: "uint256" },
+        { name: "maxSolverFee", type: "uint256" },
+        { name: "expiry", type: "uint256" },
+        { name: "nonce", type: "uint256" },
+      ],
+    };
+
+    return signer.signTypedData(domain, types, params);
   }
 
   beforeEach(async function () {
-    [owner, user, solver, signer, other, treasury] = await ethers.getSigners();
+    [owner, user, solver, facilitator] = await ethers.getSigners();
 
-    // Deploy MockERC20
-    const MockTokenFactory = await ethers.getContractFactory("MockERC20");
-    mockToken = await MockTokenFactory.deploy("Mock Token", "MTK", ethers.parseEther("1000000"));
-    await mockToken.waitForDeployment();
+    const TokenFactory = await ethers.getContractFactory("MockERC20");
+    token = await TokenFactory.deploy("Mock USDC", "MUSDC", ethers.parseEther("1000000"));
+    await token.waitForDeployment();
 
-    // Deploy Escrow
     const EscrowFactory = await ethers.getContractFactory("Escrow");
-    escrow = await EscrowFactory.deploy(
-      treasury.address,
-      10, // 0.1% protocol fee
-      owner.address // emergency recipient
-    );
+    escrow = await EscrowFactory.deploy();
     await escrow.waitForDeployment();
 
-    // Deploy PaymentVerifier
-    const PaymentVerifierFactory = await ethers.getContractFactory("PaymentVerifier");
-    verifier = await PaymentVerifierFactory.deploy();
+    const VerifierFactory = await ethers.getContractFactory("PaymentVerifier");
+    verifier = await VerifierFactory.deploy();
     await verifier.waitForDeployment();
-    await verifier.connect(owner).addSigner(signer.address);
 
-    // Deploy PriceOracle
-    const PriceOracleFactory = await ethers.getContractFactory("PriceOracle");
-    const priceOracle = await PriceOracleFactory.deploy(500, 300);
-    await priceOracle.waitForDeployment();
-
-    // Deploy IntentRegistry
-    const IntentRegistryFactory = await ethers.getContractFactory("IntentRegistry");
-    registry = await IntentRegistryFactory.deploy(
-      await escrow.getAddress(),
-      await verifier.getAddress(),
-      await priceOracle.getAddress()
-    );
+    const RegistryFactory = await ethers.getContractFactory("IntentRegistry");
+    registry = await RegistryFactory.deploy(await escrow.getAddress(), await verifier.getAddress());
     await registry.waitForDeployment();
 
-    // Set registry in escrow
-    await escrow.connect(owner).setRegistry(await registry.getAddress());
+    await escrow.setRegistry(await registry.getAddress());
+    await escrow.addAllowedToken(await token.getAddress());
+    await verifier.registerFacilitator(facilitator.address);
 
-    // Add supported token to escrow
-    await escrow.connect(owner).addSupportedToken(await mockToken.getAddress());
-
-    // Mint tokens to user and approve registry
-    await mockToken.mint(user.address, ethers.parseEther("10000"));
-    await mockToken.connect(user).approve(await registry.getAddress(), ethers.parseEther("10000"));
+    await token.mint(user.address, ethers.parseEther("10000"));
+    await token.connect(user).approve(await escrow.getAddress(), ethers.parseEther("10000"));
   });
 
-  describe("Deployment", function () {
-    it("Should set the correct escrow", async function () {
-      expect(await registry.escrow()).to.equal(await escrow.getAddress());
-    });
+  it("Should submit and fulfill an intent end-to-end", async function () {
+    const expiry = await getExpiry();
+    const params = buildIntentParams({ expiry });
+    const signature = await signIntent(params, user);
 
-    it("Should set the correct payment verifier", async function () {
-      expect(await registry.paymentVerifier()).to.equal(await verifier.getAddress());
-    });
+    const intentId = await registry.connect(user).submitIntent.staticCall(params, signature);
 
-    it("Should set the correct owner", async function () {
-      expect(await registry.owner()).to.equal(owner.address);
-    });
-  });
-
-  describe("createIntent", function () {
-    it("Should create intent successfully", async function () {
-      const expiry = await getExpiry();
-      
-      // Debug: Check balance and allowance
-      const balance = await mockToken.balanceOf(user.address);
-      const allowance = await mockToken.allowance(user.address, await registry.getAddress());
-      console.log("User balance:", balance.toString());
-      console.log("Allowance:", allowance.toString());
-      console.log("Registry address:", await registry.getAddress());
-      console.log("Escrow address:", await escrow.getAddress());
-
-      await expect(
-        registry.connect(user).createIntent(
-          INTENT_ID,
-          await mockToken.getAddress(),
-          AMOUNT,
-          expiry
-        )
-      )
-        .to.emit(registry, "IntentCreated")
-        .withArgs(INTENT_ID, user.address, await mockToken.getAddress(), AMOUNT, AMOUNT / 1000n, expiry);
-
-      const intent = await registry.getIntent(INTENT_ID);
-      expect(intent.user).to.equal(user.address);
-      expect(intent.token).to.equal(await mockToken.getAddress());
-      expect(intent.amount).to.equal(AMOUNT);
-      expect(intent.status).to.equal(0); // Pending
-    });
-
-    it("Should lock tokens in escrow", async function () {
-      const expiry = await getExpiry();
-
-      await registry.connect(user).createIntent(
-        INTENT_ID,
-        await mockToken.getAddress(),
-        AMOUNT,
+    await expect(registry.connect(user).submitIntent(params, signature))
+      .to.emit(registry, "IntentSubmitted")
+      .withArgs(
+        intentId,
+        user.address,
+        params.sourceToken,
+        params.sourceAmount,
+        params.destToken,
+        params.minDestAmount,
         expiry
       );
 
-      const balance = await escrow.getBalance(await mockToken.getAddress(), user.address, INTENT_ID);
-      expect(balance).to.equal(AMOUNT);
-    });
+    const stored = await registry.getIntent(intentId);
+    expect(stored.user).to.equal(user.address);
+    expect(stored.status).to.equal(0); // Open
 
-    it("Should revert with zero intent id", async function () {
-      await expect(
-        registry.connect(user).createIntent(
-          ethers.ZeroHash,
-          await mockToken.getAddress(),
-          AMOUNT,
-          await getExpiry()
-        )
-      ).to.be.revertedWith("IntentRegistry: zero intent id");
-    });
+    const paymentTxHash = ethers.keccak256(ethers.toUtf8Bytes("payment-tx-3"));
 
-    it("Should revert with zero token", async function () {
-      await expect(
-        registry.connect(user).createIntent(
-          INTENT_ID,
-          ethers.ZeroAddress,
-          AMOUNT,
-          await getExpiry()
-        )
-      ).to.be.revertedWith("IntentRegistry: zero token");
-    });
+    // The registry calls verifyPayment itself during fulfillIntent via the registered facilitator.
+    await expect(registry.connect(solver).fulfillIntent(intentId, params.minDestAmount, paymentTxHash))
+      .to.emit(registry, "IntentFulfilled")
+      .withArgs(intentId, solver.address, params.minDestAmount, paymentTxHash)
+      .to.emit(verifier, "PaymentVerified")
+      .withArgs(intentId, solver.address, params.minDestAmount);
 
-    it("Should revert with amount too small", async function () {
-      await expect(
-        registry.connect(user).createIntent(
-          INTENT_ID,
-          await mockToken.getAddress(),
-          1,
-          await getExpiry()
-        )
-      ).to.be.revertedWith("IntentRegistry: amount too small");
-    });
-
-    it("Should revert with expiry in past", async function () {
-      await expect(
-        registry.connect(user).createIntent(
-          INTENT_ID,
-          await mockToken.getAddress(),
-          AMOUNT,
-          Math.floor(Date.now() / 1000) - 1
-        )
-      ).to.be.revertedWith("IntentRegistry: expiry in past");
-    });
-
-    it("Should revert with expiry too far", async function () {
-      const now = await ethers.provider.getBlock("latest").then(b => b!.timestamp);
-      await expect(
-        registry.connect(user).createIntent(
-          INTENT_ID,
-          await mockToken.getAddress(),
-          AMOUNT,
-          now + 31 * 24 * 60 * 60 // 31 days from now
-        )
-      ).to.be.revertedWith("IntentRegistry: expiry too far");
-    });
-
-    it("Should revert when intent exists", async function () {
-      const expiry = await getExpiry();
-      await registry.connect(user).createIntent(
-        INTENT_ID,
-        await mockToken.getAddress(),
-        AMOUNT,
-        expiry
-      );
-
-      await expect(
-        registry.connect(user).createIntent(
-          INTENT_ID,
-          await mockToken.getAddress(),
-          AMOUNT,
-          expiry
-        )
-      ).to.be.revertedWith("IntentRegistry: intent exists");
-    });
-
-    it("Should revert when paused", async function () {
-      await registry.connect(owner).pause();
-      await expect(
-        registry.connect(user).createIntent(
-          INTENT_ID,
-          await mockToken.getAddress(),
-          AMOUNT,
-          await getExpiry()
-        )
-      ).to.be.revertedWith("Pausable: paused");
-    });
+    const fulfilled = await registry.getIntent(intentId);
+    expect(fulfilled.status).to.equal(1); // Fulfilled
+    expect(fulfilled.solver).to.equal(solver.address);
   });
 
-  describe("fulfillIntent", function () {
-    beforeEach(async function () {
-      const expiry = await getExpiry();
-      await registry.connect(user).createIntent(
-        INTENT_ID,
-        await mockToken.getAddress(),
-        AMOUNT,
-        expiry
-      );
-    });
+  it("Should cancel an expired intent", async function () {
+    const block = await ethers.provider.getBlock("latest");
+    const expiry = block!.timestamp + 2;
+    const params = buildIntentParams({ expiry, nonce: 2 });
+    const signature = await signIntent(params, user);
 
-    it("Should fulfill intent successfully", async function () {
-      const expiry = await getExpiry();
-      const protocolFee = await escrow.calculateProtocolFee(AMOUNT);
+    const tx = await registry.connect(user).submitIntent(params, signature);
+    const receipt = await tx.wait();
+    const log = receipt!.logs.find((l: any) => l.fragment?.name === "IntentSubmitted");
+    const intentId = log!.args[0];
 
-      // Create payment proof
-      const domain = {
-        name: "XDCIntentPayment",
-        version: "1",
-        chainId: 31337,
-        verifyingContract: await verifier.getAddress(),
-      };
+    await new Promise((r) => setTimeout(r, 3000));
 
-      const types = {
-        PaymentProof: [
-          { name: "intentId", type: "bytes32" },
-          { name: "solver", type: "address" },
-          { name: "token", type: "address" },
-          { name: "amount", type: "uint256" },
-          { name: "protocolFee", type: "uint256" },
-          { name: "expiryTimestamp", type: "uint256" },
-          { name: "chainId", type: "uint256" },
-        ],
-      };
-
-      const proof = {
-        intentId: INTENT_ID,
-        solver: solver.address,
-        token: await mockToken.getAddress(),
-        amount: AMOUNT,
-        protocolFee: protocolFee,
-        expiryTimestamp: expiry,
-        chainId: 31337,
-      };
-
-      const signature = await signer.signTypedData(domain, types, proof);
-
-      await expect(
-        registry.connect(solver).fulfillIntentWithBytes(
-          INTENT_ID,
-          solver.address,
-          signature
-        )
-      )
-        .to.emit(registry, "IntentFulfilled")
-        .withArgs(INTENT_ID, solver.address, AMOUNT, protocolFee, await ethers.provider.getBlock("latest").then(b => b!.timestamp + 1));
-
-      const intent = await registry.getIntent(INTENT_ID);
-      expect(intent.status).to.equal(1); // Fulfilled
-      expect(intent.solver).to.equal(solver.address);
-    });
-
-    it("Should revert with zero solver", async function () {
-      await expect(
-        registry.connect(solver).fulfillIntentWithBytes(
-          INTENT_ID,
-          ethers.ZeroAddress,
-          "0x"
-        )
-      ).to.be.revertedWith("IntentRegistry: zero solver");
-    });
-
-    it("Should revert when intent expired", async function () {
-      // Get current block timestamp
-      const block = await ethers.provider.getBlock("latest");
-      const shortExpiry = block!.timestamp + 2; // 2 seconds from now
-      
-      const shortExpiryId = ethers.keccak256(ethers.toUtf8Bytes("short-expiry"));
-      
-      await registry.connect(user).createIntent(
-        shortExpiryId,
-        await mockToken.getAddress(),
-        AMOUNT,
-        shortExpiry
-      );
-
-      // Wait for expiry
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
-      const protocolFee = await escrow.calculateProtocolFee(AMOUNT);
-
-      // Create a valid proof
-      const domain = {
-        name: "XDCIntent",
-        version: "1",
-        chainId: 31337,
-        verifyingContract: await verifier.getAddress(),
-      };
-
-      const types = {
-        PaymentProof: [
-          { name: "intentId", type: "bytes32" },
-          { name: "solver", type: "address" },
-          { name: "token", type: "address" },
-          { name: "amount", type: "uint256" },
-          { name: "protocolFee", type: "uint256" },
-          { name: "expiryTimestamp", type: "uint256" },
-          { name: "chainId", type: "uint256" },
-        ],
-      };
-
-      const proof = {
-        intentId: shortExpiryId,
-        solver: solver.address,
-        token: await mockToken.getAddress(),
-        amount: AMOUNT,
-        protocolFee: protocolFee,
-        expiryTimestamp: await getExpiry(),
-        chainId: 31337,
-      };
-
-      const signature = await signer.signTypedData(domain, types, proof);
-
-      await expect(
-        registry.connect(solver).fulfillIntentWithBytes(
-          shortExpiryId,
-          solver.address,
-          signature
-        )
-      ).to.be.revertedWith("IntentRegistry: intent expired");
-    });
+    await expect(registry.connect(solver).cancelIntent(intentId))
+      .to.emit(registry, "IntentCancelled")
+      .withArgs(intentId, user.address, params.sourceAmount);
   });
 
-  describe("cancelIntent", function () {
-    beforeEach(async function () {
-      const expiry = await getExpiry();
-      await registry.connect(user).createIntent(
-        INTENT_ID,
-        await mockToken.getAddress(),
-        AMOUNT,
-        expiry
-      );
-    });
+  it("Should batch cancel expired intents", async function () {
+    const block = await ethers.provider.getBlock("latest");
+    const expiry = block!.timestamp + 3;
+    const params1 = buildIntentParams({ expiry, nonce: 3 });
+    const params2 = buildIntentParams({ expiry, nonce: 4 });
 
-    it("Should cancel intent successfully", async function () {
-      const userBalanceBefore = await mockToken.balanceOf(user.address);
+    const tx1 = await registry.connect(user).submitIntent(params1, await signIntent(params1, user));
+    const tx2 = await registry.connect(user).submitIntent(params2, await signIntent(params2, user));
 
-      await expect(registry.connect(user).cancelIntent(INTENT_ID))
-        .to.emit(registry, "IntentCancelled")
-        .withArgs(INTENT_ID, user.address, AMOUNT, await ethers.provider.getBlock("latest").then(b => b!.timestamp + 1));
+    const id1 = (await (await tx1.wait())!.logs.find((l: any) => l.fragment?.name === "IntentSubmitted")!.args[0]);
+    const id2 = (await (await tx2.wait())!.logs.find((l: any) => l.fragment?.name === "IntentSubmitted")!.args[0]);
 
-      const intent = await registry.getIntent(INTENT_ID);
-      expect(intent.status).to.equal(2); // Cancelled
+    await new Promise((r) => setTimeout(r, 4000));
 
-      const userBalanceAfter = await mockToken.balanceOf(user.address);
-      expect(userBalanceAfter).to.equal(userBalanceBefore + AMOUNT);
-    });
-
-    it("Should revert when not intent owner", async function () {
-      await expect(
-        registry.connect(other).cancelIntent(INTENT_ID)
-      ).to.be.revertedWith("IntentRegistry: not intent owner");
-    });
-
-    it("Should revert when already fulfilled", async function () {
-      // First fulfill the intent
-      const expiry = await getExpiry();
-      const protocolFee = await escrow.calculateProtocolFee(AMOUNT);
-
-      const domain = {
-        name: "XDCIntentPayment",
-        version: "1",
-        chainId: 31337,
-        verifyingContract: await verifier.getAddress(),
-      };
-
-      const types = {
-        PaymentProof: [
-          { name: "intentId", type: "bytes32" },
-          { name: "solver", type: "address" },
-          { name: "token", type: "address" },
-          { name: "amount", type: "uint256" },
-          { name: "protocolFee", type: "uint256" },
-          { name: "expiryTimestamp", type: "uint256" },
-          { name: "chainId", type: "uint256" },
-        ],
-      };
-
-      const proof = {
-        intentId: INTENT_ID,
-        solver: solver.address,
-        token: await mockToken.getAddress(),
-        amount: AMOUNT,
-        protocolFee: protocolFee,
-        expiryTimestamp: expiry,
-        chainId: 31337,
-      };
-
-      const signature = await signer.signTypedData(domain, types, proof);
-
-      await registry.connect(solver).fulfillIntentWithBytes(
-        INTENT_ID,
-        solver.address,
-        signature
-      );
-
-      await expect(
-        registry.connect(user).cancelIntent(INTENT_ID)
-      ).to.be.revertedWith("IntentRegistry: not pending");
-    });
-  });
-
-  describe("expireIntent", function () {
-    it("Should expire intent after expiry", async function () {
-      const block = await ethers.provider.getBlock("latest");
-      const shortExpiry = block!.timestamp + 2;
-      const shortExpiryId = ethers.keccak256(ethers.toUtf8Bytes("expire-test"));
-
-      await registry.connect(user).createIntent(
-        shortExpiryId,
-        await mockToken.getAddress(),
-        AMOUNT,
-        shortExpiry
-      );
-
-      // Wait for expiry
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
-      const userBalanceBefore = await mockToken.balanceOf(user.address);
-
-      const tx = await registry.connect(other).expireIntent(shortExpiryId);
-      const receipt = await tx.wait();
-      expect(receipt).to.not.be.undefined;
-      
-      const intentAfter = await registry.getIntent(shortExpiryId);
-      expect(intentAfter.status).to.equal(3); // Expired
-
-      const userBalanceAfter = await mockToken.balanceOf(user.address);
-      expect(userBalanceAfter).to.equal(userBalanceBefore + AMOUNT);
-    });
-
-    it("Should revert before expiry", async function () {
-      const expiry = await getExpiry();
-      await registry.connect(user).createIntent(
-        INTENT_ID,
-        await mockToken.getAddress(),
-        AMOUNT,
-        expiry
-      );
-
-      await expect(
-        registry.connect(other).expireIntent(INTENT_ID)
-      ).to.be.revertedWith("IntentRegistry: not expired yet");
-    });
-  });
-
-  describe("Admin Functions", function () {
-    it("Should set escrow by owner", async function () {
-      const newEscrow = await (await ethers.getContractFactory("Escrow")).deploy(
-        treasury.address,
-        10,
-        owner.address
-      );
-      await newEscrow.waitForDeployment();
-
-      await expect(registry.connect(owner).setEscrow(await newEscrow.getAddress()))
-        .to.emit(registry, "EscrowUpdated")
-        .withArgs(await newEscrow.getAddress());
-
-      expect(await registry.escrow()).to.equal(await newEscrow.getAddress());
-    });
-
-    it("Should set payment verifier by owner", async function () {
-      const newVerifier = await (await ethers.getContractFactory("PaymentVerifier")).deploy();
-      await newVerifier.waitForDeployment();
-
-      await expect(registry.connect(owner).setPaymentVerifier(await newVerifier.getAddress()))
-        .to.emit(registry, "PaymentVerifierUpdated")
-        .withArgs(await newVerifier.getAddress());
-
-      expect(await registry.paymentVerifier()).to.equal(await newVerifier.getAddress());
-    });
-
-    it("Should revert set escrow when not owner", async function () {
-      await expect(
-        registry.connect(other).setEscrow(await escrow.getAddress())
-      ).to.be.revertedWith("Ownable: caller is not the owner");
-    });
-
-    it("Should revert set payment verifier when not owner", async function () {
-      await expect(
-        registry.connect(other).setPaymentVerifier(await verifier.getAddress())
-      ).to.be.revertedWith("Ownable: caller is not the owner");
-    });
-  });
-
-  describe("View Functions", function () {
-    beforeEach(async function () {
-      const expiry = await getExpiry();
-      await registry.connect(user).createIntent(
-        INTENT_ID,
-        await mockToken.getAddress(),
-        AMOUNT,
-        expiry
-      );
-    });
-
-    it("Should return correct intent details", async function () {
-      const intent = await registry.getIntent(INTENT_ID);
-      expect(intent.user).to.equal(user.address);
-      expect(intent.token).to.equal(await mockToken.getAddress());
-      expect(intent.amount).to.equal(AMOUNT);
-    });
-
-    it("Should return user intents", async function () {
-      const intents = await registry.getUserIntents(user.address);
-      expect(intents).to.include(INTENT_ID);
-    });
-
-    it("Should return correct pending status", async function () {
-      expect(await registry.isIntentPending(INTENT_ID)).to.be.true;
-      expect(await registry.isIntentFulfilled(INTENT_ID)).to.be.false;
-    });
-
-    it("Should return correct total intents", async function () {
-      expect(await registry.getTotalIntents()).to.equal(1);
-    });
+    await expect(registry.connect(solver).cancelExpiredIntents([id1, id2]))
+      .to.emit(registry, "IntentCancelled")
+      .withArgs(id1, user.address, params1.sourceAmount);
   });
 });

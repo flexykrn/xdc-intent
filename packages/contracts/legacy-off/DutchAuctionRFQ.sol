@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./IntentRegistry.sol";
+// import "./IntentRegistry.sol";
 
 /**
  * @title DutchAuctionRFQ
