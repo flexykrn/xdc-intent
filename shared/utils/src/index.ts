@@ -25,22 +25,20 @@ export function deriveIntentId(
     nonce: number;
   }
 ): string {
-  return ethers.keccak256(
-    ethers.AbiCoder.defaultAbiCoder().encode(
-      ['address', 'uint256', 'address', 'uint256', 'uint256', 'address', 'uint256', 'uint256', 'uint256', 'uint256'],
-      [
-        user,
-        params.sourceChainId,
-        params.sourceToken,
-        params.sourceAmount,
-        params.destChainId,
-        params.destToken,
-        params.minDestAmount,
-        params.maxSolverFee,
-        params.expiry,
-        params.nonce,
-      ]
-    )
+  return ethers.solidityPackedKeccak256(
+    ['address', 'uint256', 'address', 'uint256', 'uint256', 'address', 'uint256', 'uint256', 'uint256', 'uint256'],
+    [
+      user,
+      params.sourceChainId,
+      params.sourceToken,
+      params.sourceAmount,
+      params.destChainId,
+      params.destToken,
+      params.minDestAmount,
+      params.maxSolverFee,
+      params.expiry,
+      params.nonce,
+    ]
   );
 }
 

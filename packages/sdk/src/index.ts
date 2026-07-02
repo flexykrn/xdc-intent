@@ -28,6 +28,7 @@ export interface Intent extends IntentParams {
   solver: string;
   fulfilledAmount: bigint;
   paymentTxHash: string;
+  signature: string;
 }
 
 export { IntentParams, SignedIntent, IntentStatus, PaymentProofRequest };
@@ -235,22 +236,23 @@ export class XDCIntentSDK {
   async getIntent(intentId: string): Promise<Intent> {
     const result = await this.intentRegistry.getIntent(intentId);
     return {
-      intentId: result[0],
-      user: result[1],
-      sourceChainId: result[2],
-      sourceToken: result[3],
-      sourceAmount: result[4],
-      destChainId: result[5],
-      destToken: result[6],
-      minDestAmount: result[7],
-      maxSolverFee: result[8],
-      expiry: Number(result[9]),
-      nonce: result[10],
-      allowedSolvers: result[11],
-      status: Number(result[12]) as IntentStatus,
-      solver: result[13],
-      fulfilledAmount: result[14],
-      paymentTxHash: result[15],
+      intentId: result.intentId,
+      user: result.user,
+      sourceChainId: result.sourceChainId,
+      sourceToken: result.sourceToken,
+      sourceAmount: result.sourceAmount,
+      destChainId: result.destChainId,
+      destToken: result.destToken,
+      minDestAmount: result.minDestAmount,
+      maxSolverFee: result.maxSolverFee,
+      expiry: Number(result.expiry),
+      nonce: result.nonce,
+      signature: result.signature,
+      allowedSolvers: result.allowedSolvers,
+      status: Number(result.status) as IntentStatus,
+      solver: result.solver,
+      fulfilledAmount: result.fulfilledAmount,
+      paymentTxHash: result.paymentTxHash,
     };
   }
 
@@ -433,7 +435,7 @@ const IntentRegistryABI = [
   'function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash) external returns (bool)',
   'function cancelIntent(bytes32 intentId) external',
   'function cancelExpiredIntents(bytes32[] intentIds) external',
-  'function getIntent(bytes32 intentId) external view returns (bytes32, address, uint256, address, uint256, uint256, address, uint256, uint256, uint256, uint256, address[], uint8, address, uint256, bytes32)',
+  'function getIntent(bytes32 intentId) external view returns (tuple(bytes32 intentId, address user, uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, bytes signature, address[] allowedSolvers, uint8 status, address solver, uint256 fulfilledAmount, bytes32 paymentTxHash))',
   'function getUserNonce(address user) external view returns (uint256)',
   'function setPaymentVerifier(address verifier) external',
   'function setEscrow(address escrow) external',
