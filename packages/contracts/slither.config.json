@@ -1,0 +1,5 @@
+{
+  "filter_paths": "node_modules|@openzeppelin|legacy-off",
+  "detectors_to_exclude": "arbitrary-send-erc20,reentrancy-no-eth,calls-loop,timestamp,solc-version,naming-convention,unused-state"
+}
+

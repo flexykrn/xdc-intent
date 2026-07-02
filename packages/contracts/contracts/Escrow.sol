@@ -27,11 +27,14 @@ contract Escrow is IEscrow, ReentrancyGuard, Pausable, Ownable {
         _;
     }
 
+    event RegistrySet(address indexed registry);
+
     constructor() Ownable() {}
 
     function setRegistry(address _registry) external onlyOwner {
         require(_registry != address(0), "Escrow: zero address");
         registry = _registry;
+        emit RegistrySet(_registry);
     }
 
     function addAllowedToken(address token) external onlyOwner {
@@ -54,11 +57,11 @@ contract Escrow is IEscrow, ReentrancyGuard, Pausable, Ownable {
         require(user != address(0), "Escrow: zero user");
         require(intentAmount[intentId] == 0, "Escrow: intent already locked");
 
-        IERC20(token).safeTransferFrom(user, address(this), amount);
-
         intentToken[intentId] = token;
         intentAmount[intentId] = amount;
         intentUser[intentId] = user;
+
+        IERC20(token).safeTransferFrom(user, address(this), amount);
 
         emit TokensLocked(intentId, token, amount, user);
     }

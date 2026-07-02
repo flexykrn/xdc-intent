@@ -14,10 +14,6 @@ import "./libraries/IntentLib.sol";
 contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, EIP712 {
     using ECDSA for bytes32;
 
-    bytes32 private constant DOMAIN_TYPEHASH = keccak256(
-        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
-    );
-
     IEscrow public escrow;
     IPaymentVerifier public paymentVerifier;
 
@@ -65,7 +61,7 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
         require(signer == msg.sender, "IntentRegistry: invalid signature");
 
         if (intent.allowedSolvers.length > 0) {
-            bool allowed;
+            bool allowed = false;
             for (uint256 i = 0; i < intent.allowedSolvers.length; i++) {
                 if (intent.allowedSolvers[i] == address(0)) continue;
                 allowed = true;
@@ -121,6 +117,11 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
             "IntentRegistry: solver not allowed"
         );
 
+        intent.status = IntentStatus.Fulfilled;
+        intent.solver = msg.sender;
+        intent.fulfilledAmount = destAmount;
+        intent.paymentTxHash = paymentTxHash;
+
         // Verify x402 payment through trusted facilitator
         require(
             paymentVerifier.verifyPayment(
@@ -132,11 +133,6 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
             ),
             "IntentRegistry: payment verification failed"
         );
-
-        intent.status = IntentStatus.Fulfilled;
-        intent.solver = msg.sender;
-        intent.fulfilledAmount = destAmount;
-        intent.paymentTxHash = paymentTxHash;
 
         // Release source tokens to solver
         escrow.releaseTokens(
@@ -171,6 +167,7 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
             if (block.timestamp <= intent.expiry) continue;
 
             intent.status = IntentStatus.Cancelled;
+
             escrow.refundTokens(intentIds[i]);
 
             emit IntentCancelled(intentIds[i], intent.user, intent.sourceAmount);
@@ -190,9 +187,9 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
         paymentVerifier = IPaymentVerifier(verifier);
     }
 
-    function setEscrow(address _escrow) external onlyOwner {
-        require(_escrow != address(0), "IntentRegistry: zero address");
-        escrow = IEscrow(_escrow);
+    function setEscrow(address escrow_) external onlyOwner {
+        require(escrow_ != address(0), "IntentRegistry: zero address");
+        escrow = IEscrow(escrow_);
     }
 
     function pause() external onlyOwner {

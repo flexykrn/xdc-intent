@@ -4,18 +4,43 @@ import { join } from "path";
 
 async function main() {
   const [deployer] = await ethers.getSigners();
-  const treasury = process.env.TREASURY_ADDRESS || deployer.address;
-  
+
   console.log("========================================");
   console.log(`Deploying with account: ${deployer.address}`);
-  console.log(`Treasury: ${treasury}`);
   console.log(`Network: ${(await ethers.provider.getNetwork()).name}`);
   console.log("========================================");
+
+  const MockERC20 = await ethers.getContractFactory("MockERC20");
+  const TokenFactory = MockERC20.attach(ethers.ZeroAddress);
+
+  // Deploy mock tokens on testnets only
+  const network = await ethers.provider.getNetwork();
+  const isLocal = Number(network.chainId) === 31337;
+  const isApothem = Number(network.chainId) === 51;
+
+  let mockUSDCAddress = process.env.MOCK_USDC_ADDRESS;
+  let mockXDCAddress = process.env.MOCK_XDC_ADDRESS;
+
+  if ((isLocal || isApothem) && !mockUSDCAddress) {
+    console.log("Deploying MockUSDC...");
+    const mockUSDC = await MockERC20.deploy("Mock USDC", "MUSDC", ethers.parseEther("1000000"));
+    await mockUSDC.waitForDeployment();
+    mockUSDCAddress = await mockUSDC.getAddress();
+    console.log(`MockUSDC deployed to: ${mockUSDCAddress}`);
+  }
+
+  if ((isLocal || isApothem) && !mockXDCAddress) {
+    console.log("Deploying MockXDC...");
+    const mockXDC = await MockERC20.deploy("Mock XDC", "MXDC", ethers.parseEther("1000000"));
+    await mockXDC.waitForDeployment();
+    mockXDCAddress = await mockXDC.getAddress();
+    console.log(`MockXDC deployed to: ${mockXDCAddress}`);
+  }
 
   // Deploy Escrow
   console.log("Deploying Escrow...");
   const Escrow = await ethers.getContractFactory("Escrow");
-  const escrow = await Escrow.deploy(treasury, 100, deployer.address);
+  const escrow = await Escrow.deploy();
   await escrow.waitForDeployment();
   const escrowAddress = await escrow.getAddress();
   console.log(`Escrow deployed to: ${escrowAddress}`);
@@ -38,32 +63,46 @@ async function main() {
 
   // Wire contracts
   console.log("Wiring contracts...");
-  
-  // Set registry in escrow
-  const setRegistryTx = await escrow.setRegistry(intentRegistryAddress);
-  await setRegistryTx.wait();
-  console.log("Set IntentRegistry as registry in Escrow");
+  await (await escrow.setRegistry(intentRegistryAddress)).wait();
 
-  // Add deployer as authorized signer
-  const addSignerTx = await paymentVerifier.addSigner(deployer.address);
-  await addSignerTx.wait();
-  console.log("Added deployer as authorized signer in PaymentVerifier");
+  if (mockUSDCAddress) {
+    await (await escrow.addAllowedToken(mockUSDCAddress)).wait();
+    console.log(`Added MockUSDC to allowlist: ${mockUSDCAddress}`);
+  }
+
+  if (mockXDCAddress && mockXDCAddress !== mockUSDCAddress) {
+    await (await escrow.addAllowedToken(mockXDCAddress)).wait();
+    console.log(`Added MockXDC to allowlist: ${mockXDCAddress}`);
+  }
+
+  // Register deployer as a fallback facilitator for manual testing.
+  // In production the facilitator service address should be registered instead.
+  const facilitatorAddress = process.env.X402_FACILITATOR_ADDRESS || deployer.address;
+  await (await paymentVerifier.registerFacilitator(facilitatorAddress)).wait();
+  console.log(`Registered facilitator: ${facilitatorAddress}`);
+
+  // Register the registry itself so fulfillIntent can call verifyPayment directly.
+  await (await paymentVerifier.registerFacilitator(intentRegistryAddress)).wait();
+  console.log(`Registered IntentRegistry as facilitator: ${intentRegistryAddress}`);
 
   console.log("========================================");
   console.log("Deployment complete!");
   console.log("========================================");
 
-  // Save deployment info
   const deploymentInfo = {
-    network: (await ethers.provider.getNetwork()).name,
-    chainId: Number((await ethers.provider.getNetwork()).chainId),
+    network: network.name,
+    chainId: Number(network.chainId),
     deployer: deployer.address,
-    treasury,
     contracts: {
       Escrow: escrowAddress,
       PaymentVerifier: paymentVerifierAddress,
       IntentRegistry: intentRegistryAddress,
     },
+    tokens: {
+      MockUSDC: mockUSDCAddress,
+      MockXDC: mockXDCAddress,
+    },
+    facilitator: facilitatorAddress,
     timestamp: new Date().toISOString(),
   };
 

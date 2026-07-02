@@ -10,7 +10,8 @@
     "lint": "solhint 'contracts/**/*.sol'",
     "deploy:local": "hardhat run scripts/deploy.ts --network hardhat",
     "deploy:apothem": "hardhat run scripts/deploy.ts --network apothem",
-    "deploy:xdc": "hardhat run scripts/deploy.ts --network xdc"
+    "deploy:xdc": "hardhat run scripts/deploy.ts --network xdc",
+    "slither": "slither . --config-file slither.config.json --json slither-report.json"
   },
   "devDependencies": {
     "@cspotcode/source-map-support": "^0.8.1",
