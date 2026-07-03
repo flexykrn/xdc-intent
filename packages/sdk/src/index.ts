@@ -438,6 +438,7 @@ const IntentRegistryABI = [
   'function cancelExpiredIntents(bytes32[] intentIds) external',
   'function getIntent(bytes32 intentId) external view returns (tuple(bytes32 intentId, address user, uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, bytes signature, address[] allowedSolvers, uint8 status, address solver, uint256 fulfilledAmount, bytes32 paymentTxHash))',
   'function getUserNonce(address user) external view returns (uint256)',
+  'function getUserIntents(address user) external view returns (bytes32[])',
   'function setPaymentVerifier(address verifier) external',
   'function setEscrow(address escrow) external',
   'function pause() external',

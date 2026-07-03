@@ -33,8 +33,8 @@ const DEFAULT_SOLVER = "0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe";
 export default function CreatePage() {
   const { isConnected, sdk, address } = useWallet();
   const router = useRouter();
-  const [fromToken, setFromToken] = useState(tokens[0]);
-  const [toToken, setToToken] = useState(tokens[1]);
+  const [fromToken, setFromToken] = useState<TokenInfo>(tokens[1]);
+  const [toToken, setToToken] = useState<TokenInfo>(tokens[2]);
   const [fromAmount, setFromAmount] = useState("");
   const [minOutput, setMinOutput] = useState("");
   const [maxSolverFee, setMaxSolverFee] = useState("0.5");
