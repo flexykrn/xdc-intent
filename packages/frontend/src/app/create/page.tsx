@@ -24,8 +24,8 @@ const expiryOptions = [
 
 const tokens: TokenInfo[] = [
   { symbol: "XDC", name: "XDC Network", address: "0x0000000000000000000000000000000000000000" },
-  { symbol: "MUSDC", name: "Mock USDC", address: "0xB2F1309AA1C141C3B989085D20922ffA6e83cB1b" },
-  { symbol: "MXDC", name: "Mock XDC", address: "0x78932974fB9fbC7fceE9bd94e72764018C8C3D46" },
+  { symbol: "MUSDC", name: "Mock USDC", address: "0xa3f37BBd132C6DA9088B4A63622CacbCBee394A4" },
+  { symbol: "MXDC", name: "Mock XDC", address: "0x6DC37E3ca98E49e923E953c5A7229726513eaf6E" },
 ];
 
 const DEFAULT_SOLVER = "0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe";

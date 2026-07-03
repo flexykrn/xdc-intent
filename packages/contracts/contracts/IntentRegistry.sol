@@ -19,6 +19,9 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
 
     mapping(bytes32 => Intent) public intents;
     mapping(address => uint256) public userNonces;
+    mapping(address => bytes32[]) private _userIntentIds;
+    uint256 public totalIntents;
+    uint256 public totalIntentsFulfilled;
 
     constructor(
         address _escrow,
@@ -86,6 +89,9 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
         newIntent.allowedSolvers = intent.allowedSolvers;
         newIntent.status = IntentStatus.Open;
 
+        _userIntentIds[msg.sender].push(intentId);
+        totalIntents++;
+
         escrow.lockTokens(intent.sourceToken, intent.sourceAmount, intentId, msg.sender);
 
         emit IntentSubmitted(
@@ -118,6 +124,8 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
         intent.solver = msg.sender;
         intent.fulfilledAmount = destAmount;
         intent.paymentTxHash = paymentTxHash;
+
+        totalIntentsFulfilled++;
 
         // Verify x402 payment through trusted facilitator
         require(
@@ -177,6 +185,14 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
 
     function getUserNonce(address user) external view returns (uint256) {
         return userNonces[user];
+    }
+
+    function getUserIntents(address user) external view returns (bytes32[] memory) {
+        return _userIntentIds[user];
+    }
+
+    function getTotalIntents() external view returns (uint256) {
+        return totalIntents;
     }
 
     function setPaymentVerifier(address verifier) external onlyOwner {

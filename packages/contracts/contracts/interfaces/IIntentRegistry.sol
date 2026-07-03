@@ -47,6 +47,10 @@ interface IIntentRegistry {
     function cancelExpiredIntents(bytes32[] calldata intentIds) external;
     function getIntent(bytes32 intentId) external view returns (Intent memory);
     function getUserNonce(address user) external view returns (uint256);
+    function getUserIntents(address user) external view returns (bytes32[] memory);
+    function totalIntents() external view returns (uint256);
+    function totalIntentsFulfilled() external view returns (uint256);
+    function getTotalIntents() external view returns (uint256);
     function setPaymentVerifier(address verifier) external;
     function pause() external;
     function unpause() external;

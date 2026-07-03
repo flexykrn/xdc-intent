@@ -18,8 +18,8 @@ const CONTRACTS = {
 };
 
 const TOKENS = {
-  mockUSDC: "0xB2F1309AA1C141C3B989085D20922ffA6e83cB1b",
-  mockXDC: "0x78932974fB9fbC7fceE9bd94e72764018C8C3D46",
+  mockUSDC: "0xa3f37BBd132C6DA9088B4A63622CacbCBee394A4",
+  mockXDC: "0x6DC37E3ca98E49e923E953c5A7229726513eaf6E",
 };
 
 function startService(name: string, cwd: string): Promise<ChildProcess> {
@@ -142,6 +142,15 @@ async function main() {
       user
     );
 
+    const mockXDC = new ethers.Contract(
+      TOKENS.mockXDC,
+      [
+        "function mint(address to, uint256 amount) external",
+        "function balanceOf(address account) external view returns (uint256)",
+      ],
+      solverWallet
+    );
+
     const sourceAmount = ethers.parseEther("100");
     const minDestAmount = ethers.parseEther("95");
     const maxSolverFee = ethers.parseEther("5");
@@ -150,6 +159,8 @@ async function main() {
     await (await mockUSDC.mint(user.address, sourceAmount)).wait();
     console.log("Approving Escrow...");
     await (await mockUSDC.approve(CONTRACTS.escrow, sourceAmount)).wait();
+    console.log("Minting MockXDC to solver...");
+    await (await mockXDC.mint(solverWallet.address, minDestAmount * 10n)).wait();
 
     const block = await provider.getBlock("latest");
     const expiry = block!.timestamp + 30 * 86400;

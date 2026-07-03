@@ -76,12 +76,26 @@ export class MockDEXAdapter implements DEXAdapter {
     ['XDC-USDC', 0.05],
     ['USDC-XDC', 20],
     ['USDC-USDT', 1],
+    ['USDC-MXDC', 20],
+    ['MXDC-USDC', 0.05],
   ]);
 
   private tokenSymbols = new Map<string, string>([
-    ['0xb2f1309aa1c141c3b989085d20922ffa6e83cb1b', 'USDC'],
-    ['0x78932974fb9fbc7fcee9bd94e72764018c8c3d46', 'XDC'],
+    ['0xa3f37bbd132c6da9088b4a63622cacbcbee394a4', 'USDC'],
+    ['0x6dc37e3ca98e49e923e953c5a7229726513eaf6e', 'MXDC'],
   ]);
+
+  constructor() {
+    const envRates = process.env.MOCK_DEX_RATES;
+    if (envRates) {
+      for (const entry of envRates.split(',')) {
+        const [pair, rateStr] = entry.split(':');
+        if (pair && rateStr) {
+          this.rates.set(pair.trim().toUpperCase(), parseFloat(rateStr.trim()));
+        }
+      }
+    }
+  }
 
   async getQuote(inputToken: string, outputToken: string, inputAmount: bigint): Promise<SwapQuote> {
     const inSym = this.tokenSymbols.get(inputToken.toLowerCase()) || inputToken;

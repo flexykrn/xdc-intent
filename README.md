@@ -6,11 +6,11 @@ Intent-based trading framework on the XDC Network. Users sign intents specifying
 
 | Contract | Address | Verified |
 |---|---|---|
-| Escrow | `0xE15BcFf9046D1c1aa446006839963576E882236f` | [Sourcify](https://repo.sourcify.dev/contracts/full_match/51/0xE15BcFf9046D1c1aa446006839963576E882236f/) |
-| PaymentVerifier | `0x16Be0618263dD0C286E8A5ec2f62D5dFB0B9fA03` | [Sourcify](https://repo.sourcify.dev/contracts/full_match/51/0x16Be0618263dD0C286E8A5ec2f62D5dFB0B9fA03/) |
-| IntentRegistry | `0xDc392f24c9F09E5FD7cAFfB61b1feeD17e7D652F` | [Sourcify](https://repo.sourcify.dev/contracts/full_match/51/0xDc392f24c9F09E5FD7cAFfB61b1feeD17e7D652F/) |
-| MockUSDC | `0xB2F1309AA1C141C3B989085D20922ffA6e83cB1b` | — |
-| MockXDC | `0x78932974fB9fbC7fceE9bd94e72764018C8C3D46` | — |
+| Escrow | `0x972E97d4898AfDF642627C3E05b105fCAc3F84D4` | [Sourcify](https://repo.sourcify.dev/contracts/full_match/51/0x972E97d4898AfDF642627C3E05b105fCAc3F84D4/) |
+| PaymentVerifier | `0xf15AE12caF60fFA09CAcd6f823187aDC2fe4AeC6` | [Sourcify](https://repo.sourcify.dev/contracts/full_match/51/0xf15AE12caF60fFA09CAcd6f823187aDC2fe4AeC6/) |
+| IntentRegistry | `0x443Ba13baE4D122430737B72eA90E821F3C015Dc` | [Sourcify](https://repo.sourcify.dev/contracts/full_match/51/0x443Ba13baE4D122430737B72eA90E821F3C015Dc/) |
+| MockUSDC | `0xa3f37BBd132C6DA9088B4A63622CacbCBee394A4` | — |
+| MockXDC | `0x6DC37E3ca98E49e923E953c5A7229726513eaf6E` | — |
 
 Explorer: https://testnet.xdcscan.com
 

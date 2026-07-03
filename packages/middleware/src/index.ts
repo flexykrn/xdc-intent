@@ -50,7 +50,6 @@ const signer = new ethers.Wallet(SIGNER_KEY, provider);
 
 const IntentRegistryABI = [
   'function getIntent(bytes32 intentId) external view returns (tuple(bytes32 intentId, address user, uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, bytes signature, address[] allowedSolvers, uint8 status, address solver, uint256 fulfilledAmount, bytes32 paymentTxHash))',
-  'function isIntentPending(bytes32 intentId) external view returns (bool)',
 ];
 
 const intentRegistry = new ethers.Contract(INTENT_REGISTRY_ADDRESS, IntentRegistryABI, provider);
@@ -204,9 +203,9 @@ app.post('/v1/pay', apiKeyAuth, apiKeyLimiter, addressLimiter, async (req: Reque
     const requirements = {
       scheme: 'exact',
       network: NETWORK as `eip155:${string}`,
-      asset: String(intent.sourceToken),
-      amount: String(intent.maxSolverFee),
-      payTo: signer.address,
+      asset: String(intent.destToken),
+      amount: String(intent.minDestAmount),
+      payTo: intent.user,
       maxTimeoutSeconds: 600,
       extra: { intentId },
     };
@@ -233,7 +232,7 @@ app.post('/v1/pay', apiKeyAuth, apiKeyLimiter, addressLimiter, async (req: Reque
     payments.set(`${intentId}-${solverAddress}`, {
       intentId,
       solverAddress,
-      amount: String(intent.maxSolverFee),
+      amount: String(intent.minDestAmount),
       txHash: paymentTxHash,
       createdAt: Math.floor(Date.now() / 1000),
     });
@@ -274,9 +273,9 @@ app.get('/v1/payment-request', async (req: Request, res: Response) => {
       intentId,
       network: NETWORK,
       scheme: 'exact',
-      asset: intent.sourceToken,
-      amount: String(intent.maxSolverFee),
-      payTo: signer.address,
+      asset: intent.destToken,
+      amount: String(intent.minDestAmount),
+      payTo: intent.user,
       maxTimeoutSeconds: 600,
     });
   } catch (error: any) {
@@ -298,9 +297,9 @@ app.get('/v1/payment-request/:intentId', async (req: Request, res: Response) => 
       intentId,
       network: NETWORK,
       scheme: 'exact',
-      asset: intent.sourceToken,
-      amount: String(intent.maxSolverFee),
-      payTo: signer.address,
+      asset: intent.destToken,
+      amount: String(intent.minDestAmount),
+      payTo: intent.user,
       maxTimeoutSeconds: 600,
     });
   } catch (error: any) {
@@ -321,9 +320,9 @@ app.get('/v1/verify', async (req: Request, res: Response) => {
     const requirements = {
       scheme: 'exact',
       network: NETWORK as `eip155:${string}`,
-      asset: String(intent.sourceToken),
-      amount: String(intent.maxSolverFee),
-      payTo: signer.address,
+      asset: String(intent.destToken),
+      amount: String(intent.minDestAmount),
+      payTo: intent.user,
       maxTimeoutSeconds: 600,
       extra: { intentId },
     };

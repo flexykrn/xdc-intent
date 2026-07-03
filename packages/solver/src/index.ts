@@ -145,7 +145,7 @@ export class Solver {
 
       const result = await this.submitter.submitFulfillment(
         intent.intentId,
-        evaluation.estimatedOutput!,
+        BigInt(paymentRequest.amount),
         paymentTxHash
       );
 
