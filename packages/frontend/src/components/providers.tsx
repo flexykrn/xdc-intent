@@ -63,7 +63,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const accounts = await eth.request({ method: "eth_requestAccounts" });
       if (accounts.length === 0) throw new Error("No accounts found");
 
-      const browserProvider = new ethers.BrowserProvider(eth);
+      let browserProvider = new ethers.BrowserProvider(eth);
       const network = await browserProvider.getNetwork();
 
       if (Number(network.chainId) !== 51) {
@@ -80,6 +80,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
               blockExplorerUrls: ["https://testnet.xdcscan.com"],
             }],
           });
+        }
+        // Wait for the chain switch to propagate, then recreate provider.
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        browserProvider = new ethers.BrowserProvider(eth);
+        const newNetwork = await browserProvider.getNetwork();
+        if (Number(newNetwork.chainId) !== 51) {
+          throw new Error("Please switch to XDC Apothem Testnet (chain ID 51)");
         }
       }
 

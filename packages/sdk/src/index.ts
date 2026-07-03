@@ -257,6 +257,7 @@ export class XDCIntentSDK {
   }
 
   async getUserNonce(address: string): Promise<bigint> {
+    await this.checkChainId();
     return this.intentRegistry.getUserNonce(address);
   }
 

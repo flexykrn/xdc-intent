@@ -44,7 +44,12 @@ export default function HomePage() {
       try {
         const provider = new ethers.JsonRpcProvider(RPC_URL);
         const registry = new ethers.Contract(CONTRACTS.intentRegistry, INTENT_REGISTRY_ABI, provider);
-        const total = await registry.getTotalIntents();
+        let total: bigint = BigInt(0);
+        try {
+          total = await registry.getTotalIntents();
+        } catch {
+          // Contract may not expose a total intent counter on this deployment.
+        }
         setTotalIntents(Number(total));
       } catch (e) {
         console.error("Failed to fetch stats", e);
