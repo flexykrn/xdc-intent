@@ -79,8 +79,8 @@ export class MockDEXAdapter implements DEXAdapter {
   ]);
 
   private tokenSymbols = new Map<string, string>([
-    ['0x38bbd638abcb44bda788ebe382ee224b4f1f2f52', 'USDC'],
-    ['0xbdff490ba4a9f14d9fcd07e56930a6fac928d535', 'XDC'],
+    ['0xb2f1309aa1c141c3b989085d20922ffa6e83cb1b', 'USDC'],
+    ['0x78932974fb9fbc7fcee9bd94e72764018c8c3d46', 'XDC'],
   ]);
 
   async getQuote(inputToken: string, outputToken: string, inputAmount: bigint): Promise<SwapQuote> {

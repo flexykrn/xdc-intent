@@ -133,7 +133,14 @@ export default function MyIntentsPage() {
                   <div className="flex items-center gap-4">
                     <StatusBadge status={intent.status} />
                     <div>
-                      <div className="font-mono text-xs text-[var(--ink-3)] mb-1">{intent.intentId.slice(0, 18)}...</div>
+                      <a
+                        href={`https://testnet.xdcscan.com/tx/${intent.intentId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono text-xs text-[var(--accent)] hover:underline mb-1 inline-block"
+                      >
+                        {intent.intentId.slice(0, 18)}...
+                      </a>
                       <div className="text-lg font-semibold text-[var(--ink)]">{ethers.formatEther(intent.sourceAmount)} → {ethers.formatEther(intent.minDestAmount)}</div>
                     </div>
                   </div>

@@ -48,7 +48,10 @@ async function main() {
   // Deploy PaymentVerifier
   console.log("Deploying PaymentVerifier...");
   const PaymentVerifier = await ethers.getContractFactory("PaymentVerifier");
-  const paymentVerifier = await PaymentVerifier.deploy();
+  // PaymentVerifier will be constructed with the IntentRegistry as initial facilitator.
+  // We use a temporary zero address here because the registry isn't deployed yet,
+  // then update after registry deployment.
+  const paymentVerifier = await PaymentVerifier.deploy(ethers.ZeroAddress);
   await paymentVerifier.waitForDeployment();
   const paymentVerifierAddress = await paymentVerifier.getAddress();
   console.log(`PaymentVerifier deployed to: ${paymentVerifierAddress}`);
@@ -60,6 +63,10 @@ async function main() {
   await intentRegistry.waitForDeployment();
   const intentRegistryAddress = await intentRegistry.getAddress();
   console.log(`IntentRegistry deployed to: ${intentRegistryAddress}`);
+
+  // Register the registry as the initial facilitator.
+  await (await paymentVerifier.registerFacilitator(intentRegistryAddress)).wait();
+  console.log(`Registered IntentRegistry as facilitator: ${intentRegistryAddress}`);
 
   // Wire contracts
   console.log("Wiring contracts...");
@@ -80,10 +87,6 @@ async function main() {
   const facilitatorAddress = process.env.X402_FACILITATOR_ADDRESS || deployer.address;
   await (await paymentVerifier.registerFacilitator(facilitatorAddress)).wait();
   console.log(`Registered facilitator: ${facilitatorAddress}`);
-
-  // Register the registry itself so fulfillIntent can call verifyPayment directly.
-  await (await paymentVerifier.registerFacilitator(intentRegistryAddress)).wait();
-  console.log(`Registered IntentRegistry as facilitator: ${intentRegistryAddress}`);
 
   console.log("========================================");
   console.log("Deployment complete!");

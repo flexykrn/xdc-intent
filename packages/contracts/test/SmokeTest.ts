@@ -26,7 +26,7 @@ describe("Smoke test: SDK + contracts end-to-end", function () {
     await escrow.waitForDeployment();
 
     const VerifierFactory = await ethers.getContractFactory("PaymentVerifier");
-    verifier = await VerifierFactory.deploy();
+    verifier = await VerifierFactory.deploy(ethers.ZeroAddress);
     await verifier.waitForDeployment();
 
     const RegistryFactory = await ethers.getContractFactory("IntentRegistry");
@@ -36,6 +36,7 @@ describe("Smoke test: SDK + contracts end-to-end", function () {
     await escrow.setRegistry(await registry.getAddress());
     await escrow.addAllowedToken(await token.getAddress());
     await verifier.registerFacilitator(facilitator.address);
+    await verifier.registerFacilitator(await registry.getAddress());
 
     await token.mint(user.address, ethers.parseEther("10000"));
     await token.connect(user).approve(await escrow.getAddress(), ethers.parseEther("10000"));

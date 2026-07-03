@@ -18,8 +18,8 @@ const CONTRACTS = {
 };
 
 const TOKENS = {
-  mockUSDC: "0x38bBd638AbCB44BDa788eBe382ee224b4f1F2f52",
-  mockXDC: "0xBdff490ba4a9F14D9FCD07e56930A6fAC928D535",
+  mockUSDC: "0xB2F1309AA1C141C3B989085D20922ffA6e83cB1b",
+  mockXDC: "0x78932974fB9fbC7fceE9bd94e72764018C8C3D46",
 };
 
 function startService(name: string, cwd: string): Promise<ChildProcess> {
@@ -82,23 +82,41 @@ async function killProc(proc: ChildProcess): Promise<void> {
   });
 }
 
+async function isServiceReady(url: string, timeoutMs = 2000): Promise<boolean> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function main() {
-  const middlewareProc = await startService(
-    "middleware",
-    path.join(ROOT_DIR, "packages", "middleware")
-  );
-  const solverProc = await startService(
-    "solver",
-    path.join(ROOT_DIR, "packages", "solver")
-  );
+  let middlewareProc: ChildProcess | null = null;
+  let solverProc: ChildProcess | null = null;
+
+  const servicesAlreadyRunning = await isServiceReady(`${FACILITATOR_URL}/health`);
+
+  if (servicesAlreadyRunning) {
+    console.log("Middleware already running; skipping service spawn");
+  } else {
+    middlewareProc = await startService(
+      "middleware",
+      path.join(ROOT_DIR, "packages", "middleware")
+    );
+    solverProc = await startService(
+      "solver",
+      path.join(ROOT_DIR, "packages", "solver")
+    );
+  }
 
   try {
     await waitForReady(`${FACILITATOR_URL}/health`);
     console.log("Middleware ready");
 
-    // Solver has no health endpoint; give it a moment to start polling.
-    await new Promise((r) => setTimeout(r, 3000));
-    console.log("Solver should be running");
+    // Solver has a health endpoint; wait for it.
+    await waitForReady("http://localhost:3001/health", 30000);
+    console.log("Solver ready");
 
     const provider = new ethers.JsonRpcProvider(RPC_URL);
     const user = new ethers.Wallet(process.env.DEPLOYER_PRIVATE_KEY!, provider);
@@ -169,8 +187,8 @@ async function main() {
     }
   } finally {
     console.log("Shutting down services...");
-    await killProc(solverProc);
-    await killProc(middlewareProc);
+    if (solverProc) await killProc(solverProc);
+    if (middlewareProc) await killProc(middlewareProc);
   }
 }
 

@@ -91,6 +91,9 @@ const config: HardhatUserConfig = {
     token: 'XDC',
     coinmarketcap: process.env.COINMARKETCAP_API_KEY,
   },
+  sourcify: {
+    enabled: true,
+  },
   namedAccounts: {
     deployer: {
       default: 0,

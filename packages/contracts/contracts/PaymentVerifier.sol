@@ -10,9 +10,14 @@ contract PaymentVerifier is IPaymentVerifier, Ownable, Pausable {
     mapping(address => bool) public facilitators;
     mapping(bytes32 => bool) public verifiedPayments;
 
-    constructor() Ownable() {}
+    constructor(address initialFacilitator) Ownable() {
+        if (initialFacilitator != address(0)) {
+            facilitators[initialFacilitator] = true;
+            emit FacilitatorRegistered(initialFacilitator);
+        }
+    }
 
-    function registerFacilitator(address facilitator) external override {
+    function registerFacilitator(address facilitator) external onlyOwner override {
         require(facilitator != address(0), "PaymentVerifier: zero address");
         facilitators[facilitator] = true;
         emit FacilitatorRegistered(facilitator);

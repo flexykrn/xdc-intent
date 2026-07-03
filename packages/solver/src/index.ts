@@ -7,6 +7,7 @@ import { DEXAdapter, MockDEXAdapter, XSwapV3Adapter } from './adapters/dex';
 import { FacilitatorClient } from './facilitator-client';
 import { TransactionSubmitter } from './submitter';
 import { StateManager } from './state';
+import { startSolverHttpServer } from './server';
 
 export class Solver {
   private logger: Logger;
@@ -17,6 +18,7 @@ export class Solver {
   private facilitator: FacilitatorClient;
   private submitter: TransactionSubmitter;
   private state: StateManager;
+  private httpServer?: ReturnType<typeof startSolverHttpServer>;
   private isRunning: boolean = false;
 
   constructor() {
@@ -29,17 +31,20 @@ export class Solver {
         ? new XSwapV3Adapter(this.config.quoterAddress, this.config.routerAddress, provider)
         : new MockDEXAdapter();
 
-    this.watcher = new EventWatcher(this.config, this.logger);
+    this.state = new StateManager(this.config.stateFilePath, this.logger);
+    this.watcher = new EventWatcher(this.config, this.logger, this.state);
     this.evaluator = new IntentEvaluator(this.config, this.logger, this.dexAdapter);
     this.facilitator = new FacilitatorClient(this.config, this.logger);
     this.submitter = new TransactionSubmitter(this.config, this.logger);
-    this.state = new StateManager(this.logger);
   }
 
   async start(): Promise<void> {
     if (this.isRunning) return;
     this.isRunning = true;
+    await this.state.load();
     this.logger.info(`Starting solver ${this.submitter.getAddress()} on chain ${this.config.chainId}`);
+
+    this.httpServer = startSolverHttpServer(this.config.httpPort, this.state, this.submitter, this.logger);
 
     await this.watcher.start(async (intent) => this.handleIntent(intent));
 
@@ -64,6 +69,13 @@ export class Solver {
   private async handleIntent(intent: IntentEvent): Promise<void> {
     if (!this.isRunning) return;
 
+    this.state.logDecision({
+      timestamp: Date.now(),
+      intentId: intent.intentId,
+      decision: 'detected',
+      reason: `Detected at block ${intent.blockNumber}`,
+    });
+
     try {
       this.state.addPendingIntent({
         intentId: intent.intentId,
@@ -80,14 +92,35 @@ export class Solver {
         createdAt: Math.floor(Date.now() / 1000),
       });
 
+      this.state.logDecision({
+        timestamp: Date.now(),
+        intentId: intent.intentId,
+        decision: 'evaluated',
+        reason: 'Evaluating profitability',
+      });
+
       const evaluation = await this.evaluator.evaluate(intent);
       if (!evaluation.shouldFulfill) {
         this.logger.info(`Skipping ${intent.intentId}: ${evaluation.reason}`);
+        this.state.logDecision({
+          timestamp: Date.now(),
+          intentId: intent.intentId,
+          decision: 'skipped',
+          reason: evaluation.reason,
+          metadata: evaluation.estimatedOutput?.toString(),
+        });
         this.state.markFailed(intent.intentId);
         return;
       }
 
       this.state.markInFlight(intent.intentId);
+      this.state.logDecision({
+        timestamp: Date.now(),
+        intentId: intent.intentId,
+        decision: 'attempted',
+        reason: 'Intent passed evaluation',
+        metadata: evaluation.estimatedOutput?.toString(),
+      });
       this.logger.info(`Fulfilling ${intent.intentId}`, {
         estimatedOutput: evaluation.estimatedOutput?.toString(),
       });
@@ -118,20 +151,40 @@ export class Solver {
 
       if (result.success) {
         this.state.markCompleted(intent.intentId);
+        this.state.logDecision({
+          timestamp: Date.now(),
+          intentId: intent.intentId,
+          decision: 'succeeded',
+          reason: `Fulfilled in ${result.txHash}`,
+          metadata: result.txHash,
+        });
         this.logger.info(`Fulfilled ${intent.intentId}: ${result.txHash}`);
       } else {
         this.state.markFailed(intent.intentId);
+        this.state.logDecision({
+          timestamp: Date.now(),
+          intentId: intent.intentId,
+          decision: 'failed',
+          reason: result.error || 'Fulfillment failed',
+        });
         this.logger.error(`Fulfillment failed ${intent.intentId}: ${result.error}`);
       }
     } catch (error: any) {
-      this.logger.error(`Error handling ${intent.intentId}:`, error.message);
       this.state.markFailed(intent.intentId);
+      this.state.logDecision({
+        timestamp: Date.now(),
+        intentId: intent.intentId,
+        decision: 'failed',
+        reason: error.message || 'Unknown error',
+      });
+      this.logger.error(`Error handling ${intent.intentId}:`, error.message);
     }
   }
 
   stop(): void {
     this.isRunning = false;
     this.watcher.stop();
+    this.httpServer?.close();
     this.state.close();
     this.logger.info('Solver stopped');
   }
@@ -148,3 +201,4 @@ if (require.main === module) {
 }
 
 export default Solver;
+

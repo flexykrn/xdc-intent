@@ -28,9 +28,6 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
         require(_paymentVerifier != address(0), "IntentRegistry: zero verifier");
         escrow = IEscrow(_escrow);
         paymentVerifier = IPaymentVerifier(_paymentVerifier);
-        // Register the registry as a facilitator on the verifier so it can call verifyPayment directly.
-        // In production with a real x402 facilitator this would be the facilitator address instead.
-        IPaymentVerifier(_paymentVerifier).registerFacilitator(address(this));
     }
 
     function domainSeparator() external view returns (bytes32) {

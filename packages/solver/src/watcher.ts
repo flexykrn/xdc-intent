@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { Logger } from './logger';
 import { SolverConfig } from './config';
+import { StateManager } from './state';
 
 export interface IntentEvent {
   intentId: string;
@@ -18,13 +19,9 @@ export interface IntentEvent {
 export class EventWatcher {
   private provider: ethers.WebSocketProvider | ethers.JsonRpcProvider;
   private contract: ethers.Contract;
-  private seenIntents: Set<string> = new Set();
-  private lastProcessedBlock: number = 0;
   private isRunning: boolean = false;
-  private reconnectAttempts: number = 0;
-  private maxReconnectAttempts: number = 10;
 
-  constructor(private config: SolverConfig, private logger: Logger) {
+  constructor(private config: SolverConfig, private logger: Logger, private state: StateManager) {
     this.provider = this.createProvider();
 
     const abi = [
@@ -43,54 +40,31 @@ export class EventWatcher {
     return new ethers.JsonRpcProvider(url);
   }
 
-  private recreateProvider(): ethers.WebSocketProvider | ethers.JsonRpcProvider {
-    const wsUrl = this.config.rpcUrl.replace('https://', 'wss://').replace('http://', 'ws://');
-    try {
-      return new ethers.WebSocketProvider(wsUrl);
-    } catch {
-      return new ethers.JsonRpcProvider(this.config.rpcUrl);
-    }
-  }
-
   async start(callback: (intent: IntentEvent) => void): Promise<void> {
     this.isRunning = true;
     const currentBlock = await this.provider.getBlockNumber();
-    if (this.lastProcessedBlock > 0 && this.lastProcessedBlock < currentBlock) {
-      await this.backfillEvents(this.lastProcessedBlock, currentBlock, callback);
+    const lastProcessed = this.state.getLastProcessedBlock();
+    if (lastProcessed > 0 && lastProcessed < currentBlock) {
+      await this.backfillEvents(lastProcessed, currentBlock, callback);
     }
-    this.lastProcessedBlock = currentBlock;
+    this.state.setLastProcessedBlock(currentBlock);
 
-    this.contract.on(
-      'IntentSubmitted',
-      async (intentId, user, sourceToken, sourceAmount, destToken, minDestAmount, expiry, event) => {
-        if (!this.isRunning) return;
-        if (this.seenIntents.has(intentId)) return;
-        this.seenIntents.add(intentId);
+    this.pollLoop(callback);
+  }
 
-        try {
-          const full = await this.contract.getIntent(intentId);
-          callback({
-            intentId,
-            user,
-            sourceToken,
-            sourceAmount,
-            destToken,
-            minDestAmount,
-            maxSolverFee: full.maxSolverFee,
-            expiry: Number(expiry),
-            blockNumber: event.log.blockNumber,
-            transactionHash: event.log.transactionHash,
-          });
-        } catch (error: any) {
-          this.logger.error(`Failed to fetch intent ${intentId}: ${error.message}`);
+  private async pollLoop(callback: (intent: IntentEvent) => void): Promise<void> {
+    while (this.isRunning) {
+      try {
+        const currentBlock = await this.provider.getBlockNumber();
+        const lastProcessed = this.state.getLastProcessedBlock();
+        if (lastProcessed < currentBlock) {
+          await this.backfillEvents(lastProcessed + 1, currentBlock, callback);
         }
+      } catch (error: any) {
+        this.logger.error('Polling error:', error.message);
       }
-    );
-
-    this.provider.on('error', (error) => {
-      this.logger.error('Provider error:', error);
-      this.handleReconnection(callback);
-    });
+      await new Promise((r) => setTimeout(r, this.config.pollingInterval || 5000));
+    }
   }
 
   private async backfillEvents(
@@ -107,9 +81,12 @@ export class EventWatcher {
         for (const event of events) {
           const args = (event as ethers.EventLog).args;
           if (!args) continue;
-          const full = await this.contract.getIntent(args[0]);
+          const intentId = args[0];
+          if (this.state.hasSeenIntent(intentId)) continue;
+          this.state.markIntentSeen(intentId);
+          const full = await this.contract.getIntent(intentId);
           callback({
-            intentId: args[0],
+            intentId,
             user: args[1],
             sourceToken: args[2],
             sourceAmount: args[3],
@@ -125,40 +102,10 @@ export class EventWatcher {
         this.logger.error(`Backfill error ${start}-${end}: ${error.message}`);
       }
     }
-  }
-
-  private async handleReconnection(callback: (intent: IntentEvent) => void): Promise<void> {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.logger.error('Max reconnection attempts reached');
-      return;
-    }
-    this.reconnectAttempts++;
-    const delay = Math.min(1000 * 2 ** this.reconnectAttempts, 30000);
-    this.logger.info(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
-    setTimeout(async () => {
-      try {
-        const wsUrl = this.config.rpcUrl.replace('https://', 'wss://').replace('http://', 'ws://');
-        try {
-          this.provider = new ethers.WebSocketProvider(wsUrl);
-        } catch {
-          this.provider = new ethers.JsonRpcProvider(this.config.rpcUrl);
-        }
-        const abi = [
-          'event IntentSubmitted(bytes32 indexed intentId, address indexed user, address sourceToken, uint256 sourceAmount, address destToken, uint256 minDestAmount, uint256 expiry)',
-        ];
-        this.contract = new ethers.Contract(this.config.intentRegistryAddress, abi, this.provider);
-        await this.start(callback);
-        this.reconnectAttempts = 0;
-      } catch (error: any) {
-        this.logger.error('Reconnection failed:', error.message);
-        this.handleReconnection(callback);
-      }
-    }, delay);
+    this.state.setLastProcessedBlock(toBlock);
   }
 
   stop(): void {
     this.isRunning = false;
-    this.contract.removeAllListeners();
-    this.provider.removeAllListeners();
   }
 }

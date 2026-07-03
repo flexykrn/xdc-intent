@@ -14,15 +14,15 @@ export const CAIP2: Record<number, string> = {
 
 export const CONTRACT_ADDRESSES: Record<number, { escrow: string; paymentVerifier: string; intentRegistry: string }> = {
   [CHAIN_IDS.XDC_APOTHEM]: {
-    escrow: '0x8cD60D4235ee2966B89eCa41B7Fe31392512b3a6',
-    paymentVerifier: '0x46CD0bb7Ba59275b58A865439df1D5F11aA1E288',
-    intentRegistry: '0xC3C09573e4E4D6da363cf32f7923760ec80ec904',
+    escrow: '0xE15BcFf9046D1c1aa446006839963576E882236f',
+    paymentVerifier: '0x16Be0618263dD0C286E8A5ec2f62D5dFB0B9fA03',
+    intentRegistry: '0xDc392f24c9F09E5FD7cAFfB61b1feeD17e7D652F',
   },
 };
 
 export const SUPPORTED_STABLECOINS: Record<number, string[]> = {
   [CHAIN_IDS.XDC_APOTHEM]: [
-    '0x38bBd638AbCB44BDa788eBe382ee224b4f1F2f52', // MockUSDC
+    '0xB2F1309AA1C141C3B989085D20922ffA6e83cB1b', // MockUSDC
   ],
   [CHAIN_IDS.XDC_MAINNET]: [
     // USDC bridged via Stargate (to be populated after deployment)
