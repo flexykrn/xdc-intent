@@ -56,10 +56,18 @@ async function main() {
   const paymentVerifierAddress = await paymentVerifier.getAddress();
   console.log(`PaymentVerifier deployed to: ${paymentVerifierAddress}`);
 
+  // Deploy SolverRegistry
+  console.log("Deploying SolverRegistry...");
+  const SolverRegistry = await ethers.getContractFactory("SolverRegistry");
+  const solverRegistry = await SolverRegistry.deploy();
+  await solverRegistry.waitForDeployment();
+  const solverRegistryAddress = await solverRegistry.getAddress();
+  console.log(`SolverRegistry deployed to: ${solverRegistryAddress}`);
+
   // Deploy IntentRegistry
   console.log("Deploying IntentRegistry...");
   const IntentRegistry = await ethers.getContractFactory("IntentRegistry");
-  const intentRegistry = await IntentRegistry.deploy(escrowAddress, paymentVerifierAddress);
+  const intentRegistry = await IntentRegistry.deploy(escrowAddress, paymentVerifierAddress, solverRegistryAddress);
   await intentRegistry.waitForDeployment();
   const intentRegistryAddress = await intentRegistry.getAddress();
   console.log(`IntentRegistry deployed to: ${intentRegistryAddress}`);
@@ -100,6 +108,7 @@ async function main() {
       Escrow: escrowAddress,
       PaymentVerifier: paymentVerifierAddress,
       IntentRegistry: intentRegistryAddress,
+      SolverRegistry: solverRegistryAddress,
     },
     tokens: {
       MockUSDC: mockUSDCAddress,

@@ -10,8 +10,10 @@ import { truncateAddress } from "@/lib/utils";
 
 const navLinks = [
   { label: "Home", href: "/" },
-  { label: "Swap", href: "/create" },
+  { label: "Create Intent", href: "/create" },
+  { label: "Market", href: "/market" },
   { label: "My Intents", href: "/my-intents" },
+  { label: "Agent Demo", href: "/agent-demo" },
   { label: "Explorer", href: "https://testnet.xdcscan.com", external: true },
 ];
 

@@ -11,11 +11,14 @@ import "./interfaces/IEscrow.sol";
 import "./interfaces/IPaymentVerifier.sol";
 import "./libraries/IntentLib.sol";
 
+import "./interfaces/ISolverRegistry.sol";
+
 contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, EIP712 {
     using ECDSA for bytes32;
 
     IEscrow public escrow;
     IPaymentVerifier public paymentVerifier;
+    ISolverRegistry public solverRegistry;
 
     mapping(bytes32 => Intent) public intents;
     mapping(address => uint256) public userNonces;
@@ -25,12 +28,15 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
 
     constructor(
         address _escrow,
-        address _paymentVerifier
+        address _paymentVerifier,
+        address _solverRegistry
     ) Ownable() EIP712("XDCIntents", "1") {
         require(_escrow != address(0), "IntentRegistry: zero escrow");
         require(_paymentVerifier != address(0), "IntentRegistry: zero verifier");
+        require(_solverRegistry != address(0), "IntentRegistry: zero solver registry");
         escrow = IEscrow(_escrow);
         paymentVerifier = IPaymentVerifier(_paymentVerifier);
+        solverRegistry = ISolverRegistry(_solverRegistry);
     }
 
     function domainSeparator() external view returns (bytes32) {
@@ -120,6 +126,8 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
             "IntentRegistry: solver not allowed"
         );
 
+        require(solverRegistry.isRegistered(msg.sender), "IntentRegistry: solver not registered");
+
         intent.status = IntentStatus.Fulfilled;
         intent.solver = msg.sender;
         intent.fulfilledAmount = destAmount;
@@ -133,7 +141,7 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
                 paymentTxHash,
                 msg.sender,
                 intent.user,
-                destAmount,
+                intent.maxSolverFee,
                 intentId
             ),
             "IntentRegistry: payment verification failed"
@@ -142,7 +150,7 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
         // Release source tokens to solver
         escrow.releaseTokens(
             intent.sourceToken,
-            intent.sourceAmount - intent.maxSolverFee,
+            intent.sourceAmount,
             msg.sender,
             intentId
         );
@@ -193,6 +201,11 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
 
     function getTotalIntents() external view returns (uint256) {
         return totalIntents;
+    }
+
+    function setSolverRegistry(address registry_) external onlyOwner {
+        require(registry_ != address(0), "IntentRegistry: zero address");
+        solverRegistry = ISolverRegistry(registry_);
     }
 
     function setPaymentVerifier(address verifier) external onlyOwner {

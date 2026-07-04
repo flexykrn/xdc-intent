@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { IntentRegistry, Escrow, PaymentVerifier, MockERC20 } from "../typechain-types";
+import { IntentRegistry, Escrow, PaymentVerifier, MockERC20, SolverRegistry } from "../typechain-types";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 import { XDCIntentSDK, IntentParams } from "@xdc-intent/sdk";
 
@@ -8,6 +8,7 @@ describe("Smoke test: SDK + contracts end-to-end", function () {
   let registry: IntentRegistry;
   let escrow: Escrow;
   let verifier: PaymentVerifier;
+  let solverRegistry: SolverRegistry;
   let token: MockERC20;
   let owner: SignerWithAddress;
   let user: SignerWithAddress;
@@ -29,14 +30,19 @@ describe("Smoke test: SDK + contracts end-to-end", function () {
     verifier = await VerifierFactory.deploy(ethers.ZeroAddress);
     await verifier.waitForDeployment();
 
+    const SolverRegistryFactory = await ethers.getContractFactory("SolverRegistry");
+    solverRegistry = await SolverRegistryFactory.deploy();
+    await solverRegistry.waitForDeployment();
+
     const RegistryFactory = await ethers.getContractFactory("IntentRegistry");
-    registry = await RegistryFactory.deploy(await escrow.getAddress(), await verifier.getAddress());
+    registry = await RegistryFactory.deploy(await escrow.getAddress(), await verifier.getAddress(), await solverRegistry.getAddress());
     await registry.waitForDeployment();
 
     await escrow.setRegistry(await registry.getAddress());
     await escrow.addAllowedToken(await token.getAddress());
     await verifier.registerFacilitator(facilitator.address);
     await verifier.registerFacilitator(await registry.getAddress());
+    await solverRegistry.connect(solver).registerSolver("SmokeSolver", 30);
 
     await token.mint(user.address, ethers.parseEther("10000"));
     await token.connect(user).approve(await escrow.getAddress(), ethers.parseEther("10000"));

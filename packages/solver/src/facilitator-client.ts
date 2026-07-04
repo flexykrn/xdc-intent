@@ -2,47 +2,107 @@ import { ethers } from 'ethers';
 import { Logger } from './logger';
 import { SolverConfig } from './config';
 
-export interface PaymentRequest {
-  amount: string;
-  asset: string;
-  payTo: string;
+export interface PaymentRequirements {
+  scheme: string;
   network: string;
-  nonce: string;
-  deadline: number;
-  intentId: string;
+  asset: string;
+  amount: string;
+  payTo: string;
+  maxTimeoutSeconds: number;
+  extra: Record<string, unknown>;
 }
 
-export interface PaymentProof {
-  paymentTxHash: string;
+export interface PaymentRequired {
+  x402Version: number;
+  resource: { url: string; description?: string };
+  accepts: PaymentRequirements[];
+}
+
+export interface Quote {
+  intentId: string;
+  solverAddress: string;
+  outputAmount: string;
+  feeBps: number;
+  signature: string;
+  createdAt: number;
 }
 
 export class FacilitatorClient {
   constructor(private config: SolverConfig, private logger: Logger) {}
 
-  async requestPayment(intentId: string, solverAddress: string): Promise<PaymentRequest> {
-    const res = await fetch(
-      `${this.config.facilitatorUrl}/v1/payment-request?intentId=${intentId}&payer=${solverAddress}`,
-      { headers: { 'X-API-Key': this.config.facilitatorApiKey } }
-    );
-    const body = await res.json();
-    this.logger.debug('Payment request response', body);
-    if (res.ok) {
-      return body as PaymentRequest;
+  async submitQuote(quote: {
+    intentId: string;
+    solverAddress: string;
+    outputAmount: string;
+    feeBps: number;
+    signature: string;
+  }): Promise<{ success: boolean; quote?: Quote; error?: string }> {
+    const res = await fetch(`${this.config.facilitatorUrl}/v1/quotes`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': this.config.facilitatorApiKey,
+      },
+      body: JSON.stringify(quote),
+    });
+    const body = (await res.json()) as any;
+    if (!res.ok) {
+      return { success: false, error: body.error || `Status ${res.status}` };
     }
-    throw new Error(`Unexpected facilitator status: ${res.status}`);
+    return { success: true, quote: body.quote as Quote };
   }
 
-  async submitPaymentProof(
-    paymentTxHash: string,
+  async getQuotes(intentId: string): Promise<Quote[]> {
+    const res = await fetch(`${this.config.facilitatorUrl}/v1/intents/${intentId}/quotes`);
+    if (!res.ok) return [];
+    const body = (await res.json()) as any;
+    return (body.quotes || []) as Quote[];
+  }
+
+  async requestPayment(intentId: string): Promise<PaymentRequired> {
+    const res = await fetch(`${this.config.facilitatorUrl}/v1/intents/${intentId}/payment-required`);
+    const body = (await res.json()) as any;
+    if (!res.ok && res.status !== 402) {
+      throw new Error(`Unexpected facilitator status: ${res.status}`);
+    }
+    if (res.headers.get('PAYMENT-REQUIRED')) {
+      const decoded = Buffer.from(res.headers.get('PAYMENT-REQUIRED')!, 'base64').toString('utf8');
+      return JSON.parse(decoded) as PaymentRequired;
+    }
+    return body as PaymentRequired;
+  }
+
+  async settlePayment(
     intentId: string,
-    solverAddress: string
-  ): Promise<PaymentProof> {
-    const res = await fetch(`${this.config.facilitatorUrl}/v1/pay`, {
+    paymentPayload: {
+      x402Version: number;
+      accepted: PaymentRequirements;
+      payload: {
+        authorization: {
+          from: string;
+          to: string;
+          value: string;
+          validAfter: string;
+          validBefore: string;
+          nonce: string;
+        };
+        signature: string;
+      };
+    }
+  ): Promise<{ success: boolean; transaction?: string; error?: string }> {
+    const encoded = Buffer.from(JSON.stringify(paymentPayload)).toString('base64');
+    const res = await fetch(`${this.config.facilitatorUrl}/v1/intents/${intentId}/settle`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': this.config.facilitatorApiKey },
-      body: JSON.stringify({ intentId, solverAddress, paymentTxHash }),
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': this.config.facilitatorApiKey,
+        'PAYMENT-SIGNATURE': encoded,
+      },
     });
-    if (!res.ok) throw new Error(`Payment proof failed: ${await res.text()}`);
-    return (await res.json()) as PaymentProof;
+    const body = (await res.json()) as any;
+    if (!res.ok) {
+      return { success: false, error: body.error || `Status ${res.status}` };
+    }
+    return { success: true, transaction: body.transaction as string };
   }
 }

@@ -7,11 +7,11 @@ This runbook covers operating the XDC Intent Framework on XDC Apothem testnet.
 
 | Contract | Address | Sourcify |
 |---|---|---|
-| Escrow | `0x972E97d4898AfDF642627C3E05b105fCAc3F84D4` | https://repo.sourcify.dev/contracts/full_match/51/0x972E97d4898AfDF642627C3E05b105fCAc3F84D4/ |
-| PaymentVerifier | `0xf15AE12caF60fFA09CAcd6f823187aDC2fe4AeC6` | https://repo.sourcify.dev/contracts/full_match/51/0xf15AE12caF60fFA09CAcd6f823187aDC2fe4AeC6/ |
-| IntentRegistry | `0x443Ba13baE4D122430737B72eA90E821F3C015Dc` | https://repo.sourcify.dev/contracts/full_match/51/0x443Ba13baE4D122430737B72eA90E821F3C015Dc/ |
-| MockUSDC | `0xa3f37BBd132C6DA9088B4A63622CacbCBee394A4` | — |
-| MockXDC | `0x6DC37E3ca98E49e923E953c5A7229726513eaf6E` | — |
+| Escrow | `0xF5BDAA17e4cEA2bD6c19dea300Ff855db1E22288` | https://repo.sourcify.dev/contracts/full_match/51/0xF5BDAA17e4cEA2bD6c19dea300Ff855db1E22288/ |
+| PaymentVerifier | `0x31dFf11EC285ef4167133218bDE2DE8CCAeb36D6` | https://repo.sourcify.dev/contracts/full_match/51/0x31dFf11EC285ef4167133218bDE2DE8CCAeb36D6/ |
+| IntentRegistry | `0x53d5bDe77bbeC1D0bE9dd0826b66deF2Af63dAA4` | https://repo.sourcify.dev/contracts/full_match/51/0x53d5bDe77bbeC1D0bE9dd0826b66deF2Af63dAA4/ |
+| MockUSDC | `0x86530A99784D188e8343e119140114d9e5fD0546` | — |
+| MockXDC | `0xfe4E746cA450C46Fe6Ede5EAc184A7F2082B2312` | — |
 
 Explorer: https://testnet.xdcscan.com
 

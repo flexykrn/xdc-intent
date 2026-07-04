@@ -4,7 +4,7 @@ import { SolverConfig, loadConfig } from './config';
 import { EventWatcher, IntentEvent } from './watcher';
 import { IntentEvaluator } from './evaluator';
 import { DEXAdapter, MockDEXAdapter, XSwapV3Adapter } from './adapters/dex';
-import { FacilitatorClient } from './facilitator-client';
+import { FacilitatorClient, PaymentRequirements } from './facilitator-client';
 import { TransactionSubmitter } from './submitter';
 import { StateManager } from './state';
 import { startSolverHttpServer } from './server';
@@ -44,6 +44,8 @@ export class Solver {
     await this.state.load();
     this.logger.info(`Starting solver ${this.submitter.getAddress()} on chain ${this.config.chainId}`);
 
+    await this.registerSolver();
+
     this.httpServer = startSolverHttpServer(this.config.httpPort, this.state, this.submitter, this.logger);
 
     await this.watcher.start(async (intent) => this.handleIntent(intent));
@@ -64,6 +66,27 @@ export class Solver {
     }
 
     this.logger.info('Solver is running');
+  }
+
+  private async registerSolver(): Promise<void> {
+    try {
+      const provider = new ethers.JsonRpcProvider(this.config.rpcUrl);
+      const wallet = new ethers.Wallet(this.config.privateKey, provider);
+      const registry = new ethers.Contract(
+        this.config.solverRegistryAddress,
+        ['function registerSolver(string memory name, uint256 feeBps) external returns (uint256)'],
+        wallet
+      );
+      const tx = await registry.registerSolver(this.config.solverName, this.config.solverFeeBps);
+      await tx.wait();
+      this.logger.info(`Registered solver ${this.config.solverName} with fee ${this.config.solverFeeBps} bps`);
+    } catch (error: any) {
+      if (error.message?.includes('already registered')) {
+        this.logger.info('Solver already registered');
+      } else {
+        this.logger.warn(`Solver registration failed: ${error.message}`);
+      }
+    }
   }
 
   private async handleIntent(intent: IntentEvent): Promise<void> {
@@ -92,13 +115,6 @@ export class Solver {
         createdAt: Math.floor(Date.now() / 1000),
       });
 
-      this.state.logDecision({
-        timestamp: Date.now(),
-        intentId: intent.intentId,
-        decision: 'evaluated',
-        reason: 'Evaluating profitability',
-      });
-
       const evaluation = await this.evaluator.evaluate(intent);
       if (!evaluation.shouldFulfill) {
         this.logger.info(`Skipping ${intent.intentId}: ${evaluation.reason}`);
@@ -113,41 +129,40 @@ export class Solver {
         return;
       }
 
-      this.state.markInFlight(intent.intentId);
-      this.state.logDecision({
-        timestamp: Date.now(),
+      const outputAmount = evaluation.estimatedOutput!;
+      const quoteSignature = await this.signQuote(intent.intentId, outputAmount);
+      const quoteResult = await this.facilitator.submitQuote({
         intentId: intent.intentId,
-        decision: 'attempted',
-        reason: 'Intent passed evaluation',
-        metadata: evaluation.estimatedOutput?.toString(),
-      });
-      this.logger.info(`Fulfilling ${intent.intentId}`, {
-        estimatedOutput: evaluation.estimatedOutput?.toString(),
+        solverAddress: this.submitter.getAddress(),
+        outputAmount: outputAmount.toString(),
+        feeBps: this.config.solverFeeBps,
+        signature: quoteSignature,
       });
 
-      const paymentRequest = await this.facilitator.requestPayment(
-        intent.intentId,
-        this.submitter.getAddress()
-      );
+      if (!quoteResult.success) {
+        this.logger.warn(`Quote submission failed for ${intent.intentId}: ${quoteResult.error}`);
+        this.state.markFailed(intent.intentId);
+        return;
+      }
 
-      // Execute the ERC-20 payment on-chain (x402 V2 style).
-      const signer = this.submitter.getSigner();
-      const token = new ethers.Contract(
-        paymentRequest.asset,
-        ['function transfer(address to, uint256 amount) external returns (bool)'],
-        signer
-      );
-      const paymentTx = await token.transfer(paymentRequest.payTo, paymentRequest.amount);
-      const paymentReceipt = await paymentTx.wait();
-      const paymentTxHash = paymentReceipt?.hash || paymentTx.hash;
+      this.state.markInFlight(intent.intentId);
+      this.logger.info(`Quoted ${intent.intentId}`, { outputAmount: outputAmount.toString() });
 
-      await this.facilitator.submitPaymentProof(paymentTxHash, intent.intentId, this.submitter.getAddress());
+      await this.waitForQuoteWin(intent.intentId);
 
-      const result = await this.submitter.submitFulfillment(
-        intent.intentId,
-        BigInt(paymentRequest.amount),
-        paymentTxHash
-      );
+      const paymentRequired = await this.facilitator.requestPayment(intent.intentId);
+      const accepted = paymentRequired.accepts[0];
+      if (!accepted) {
+        throw new Error('No payment requirements available');
+      }
+
+      const paymentPayload = await this.buildEIP3009Payment(accepted);
+      const settleResult = await this.facilitator.settlePayment(intent.intentId, paymentPayload);
+      if (!settleResult.success || !settleResult.transaction) {
+        throw new Error(settleResult.error || 'Settlement failed');
+      }
+
+      const result = await this.submitter.submitFulfillment(intent.intentId, outputAmount, settleResult.transaction);
 
       if (result.success) {
         this.state.markCompleted(intent.intentId);
@@ -160,14 +175,7 @@ export class Solver {
         });
         this.logger.info(`Fulfilled ${intent.intentId}: ${result.txHash}`);
       } else {
-        this.state.markFailed(intent.intentId);
-        this.state.logDecision({
-          timestamp: Date.now(),
-          intentId: intent.intentId,
-          decision: 'failed',
-          reason: result.error || 'Fulfillment failed',
-        });
-        this.logger.error(`Fulfillment failed ${intent.intentId}: ${result.error}`);
+        throw new Error(result.error || 'Fulfillment failed');
       }
     } catch (error: any) {
       this.state.markFailed(intent.intentId);
@@ -179,6 +187,98 @@ export class Solver {
       });
       this.logger.error(`Error handling ${intent.intentId}:`, error.message);
     }
+  }
+
+  private async signQuote(intentId: string, outputAmount: bigint): Promise<string> {
+    const wallet = this.submitter.getSigner() as ethers.Wallet;
+    const message = JSON.stringify({ intentId, outputAmount: outputAmount.toString(), solver: this.submitter.getAddress() });
+    return await wallet.signMessage(message);
+  }
+
+  private async waitForQuoteWin(intentId: string): Promise<void> {
+    const maxWait = 30000;
+    const interval = 1000;
+    const start = Date.now();
+    const solverAddress = this.submitter.getAddress().toLowerCase();
+
+    while (Date.now() - start < maxWait) {
+      const quotes = await this.facilitator.getQuotes(intentId);
+      const best = quotes.reduce((max, q) =>
+        BigInt(q.outputAmount) > BigInt(max.outputAmount) ? q : max, quotes[0]);
+      if (best && best.solverAddress.toLowerCase() === solverAddress) {
+        return;
+      }
+      await new Promise((r) => setTimeout(r, interval));
+    }
+
+    throw new Error('Did not win quote competition');
+  }
+
+  private async buildEIP3009Payment(accepted: PaymentRequirements): Promise<{
+    x402Version: number;
+    accepted: PaymentRequirements;
+    payload: {
+      authorization: {
+        from: string;
+        to: string;
+        value: string;
+        validAfter: string;
+        validBefore: string;
+        nonce: string;
+      };
+      signature: string;
+    };
+  }> {
+    const wallet = this.submitter.getSigner() as ethers.Wallet;
+    const now = Math.floor(Date.now() / 1000);
+    const validAfter = now - 60;
+    const validBefore = now + 600;
+    const nonce = ethers.keccak256(ethers.randomBytes(32));
+
+    const domain = {
+      name: typeof accepted.extra?.tokenName === 'string' ? accepted.extra.tokenName : 'Mock USDC',
+      version: typeof accepted.extra?.tokenVersion === 'string' ? accepted.extra.tokenVersion : '1',
+      chainId: parseInt(accepted.network.split(':')[1], 10),
+      verifyingContract: ethers.getAddress(accepted.asset),
+    };
+
+    const types = {
+      TransferWithAuthorization: [
+        { name: 'from', type: 'address' },
+        { name: 'to', type: 'address' },
+        { name: 'value', type: 'uint256' },
+        { name: 'validAfter', type: 'uint256' },
+        { name: 'validBefore', type: 'uint256' },
+        { name: 'nonce', type: 'bytes32' },
+      ],
+    };
+
+    const message = {
+      from: wallet.address,
+      to: ethers.getAddress(accepted.payTo),
+      value: accepted.amount,
+      validAfter,
+      validBefore,
+      nonce,
+    };
+
+    const signature = await wallet.signTypedData(domain, types, message);
+
+    return {
+      x402Version: 2,
+      accepted,
+      payload: {
+        authorization: {
+          from: wallet.address,
+          to: accepted.payTo,
+          value: accepted.amount,
+          validAfter: validAfter.toString(),
+          validBefore: validBefore.toString(),
+          nonce,
+        },
+        signature,
+      },
+    };
   }
 
   stop(): void {
@@ -201,4 +301,3 @@ if (require.main === module) {
 }
 
 export default Solver;
-

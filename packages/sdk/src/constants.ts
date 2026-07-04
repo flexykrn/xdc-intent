@@ -67,9 +67,9 @@ export const CHAIN_IDS = {
 
 export const CONTRACT_ADDRESSES: Record<number, { escrow: string; paymentVerifier: string; intentRegistry: string }> = {
   [CHAIN_IDS.XDC_APOTHEM]: {
-    escrow: '0x972E97d4898AfDF642627C3E05b105fCAc3F84D4',
-    paymentVerifier: '0xf15AE12caF60fFA09CAcd6f823187aDC2fe4AeC6',
-    intentRegistry: '0x443Ba13baE4D122430737B72eA90E821F3C015Dc',
+    escrow: '0xF5BDAA17e4cEA2bD6c19dea300Ff855db1E22288',
+    paymentVerifier: '0x31dFf11EC285ef4167133218bDE2DE8CCAeb36D6',
+    intentRegistry: '0x53d5bDe77bbeC1D0bE9dd0826b66deF2Af63dAA4',
   },
 };
 

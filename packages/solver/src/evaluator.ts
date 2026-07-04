@@ -46,14 +46,23 @@ export class IntentEvaluator {
     }
 
     const gasCost = this.estimateGasCost(quote.gasEstimate + 100000n);
-    const grossProfit = quote.outputAmount - intent.minDestAmount;
+    const outputAmount = (quote.outputAmount * BigInt(Math.floor(this.config.minDestAmount * 1000))) / 1000n;
+    const grossProfit = outputAmount - intent.minDestAmount;
     const netProfit = grossProfit - gasCost - intent.maxSolverFee;
+
+    if (outputAmount < intent.minDestAmount) {
+      return {
+        shouldFulfill: false,
+        reason: `Quoted output ${outputAmount} below minDest ${intent.minDestAmount}`,
+        estimatedOutput: outputAmount,
+      };
+    }
 
     if (netProfit <= 0n) {
       return {
         shouldFulfill: false,
         reason: `Not profitable after gas/fees. Net: ${netProfit}`,
-        estimatedOutput: quote.outputAmount,
+        estimatedOutput: outputAmount,
       };
     }
 
@@ -63,7 +72,7 @@ export class IntentEvaluator {
       return {
         shouldFulfill: false,
         reason: `Profit ${profitPercent.toFixed(2)}% < min ${this.config.minProfitMargin}%`,
-        estimatedOutput: quote.outputAmount,
+        estimatedOutput: outputAmount,
       };
     }
 
@@ -71,7 +80,7 @@ export class IntentEvaluator {
       shouldFulfill: true,
       reason: 'Profitable',
       estimatedProfit: profitPercent,
-      estimatedOutput: quote.outputAmount,
+      estimatedOutput: outputAmount,
       quote,
     };
   }

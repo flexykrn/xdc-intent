@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { IntentRegistry, Escrow, PaymentVerifier, MockERC20 } from "../typechain-types";
+import { IntentRegistry, Escrow, PaymentVerifier, MockERC20, SolverRegistry } from "../typechain-types";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 import { IIntentRegistry } from "../typechain-types/contracts/IntentRegistry";
 
@@ -14,6 +14,7 @@ describe("IntentRegistry (plan-aligned)", function () {
   let registry: IntentRegistry;
   let escrow: Escrow;
   let verifier: PaymentVerifier;
+  let solverRegistry: SolverRegistry;
   let token: MockERC20;
   let owner: SignerWithAddress;
   let user: SignerWithAddress;
@@ -80,14 +81,19 @@ describe("IntentRegistry (plan-aligned)", function () {
     verifier = await VerifierFactory.deploy(ethers.ZeroAddress);
     await verifier.waitForDeployment();
 
+    const SolverRegistryFactory = await ethers.getContractFactory("SolverRegistry");
+    solverRegistry = await SolverRegistryFactory.deploy();
+    await solverRegistry.waitForDeployment();
+
     const RegistryFactory = await ethers.getContractFactory("IntentRegistry");
-    registry = await RegistryFactory.deploy(await escrow.getAddress(), await verifier.getAddress());
+    registry = await RegistryFactory.deploy(await escrow.getAddress(), await verifier.getAddress(), await solverRegistry.getAddress());
     await registry.waitForDeployment();
 
     await escrow.setRegistry(await registry.getAddress());
     await escrow.addAllowedToken(await token.getAddress());
     await verifier.registerFacilitator(facilitator.address);
     await verifier.registerFacilitator(await registry.getAddress());
+    await solverRegistry.connect(solver).registerSolver("TestSolver", 30);
 
     await token.mint(user.address, ethers.parseEther("10000"));
     await token.connect(user).approve(await escrow.getAddress(), ethers.parseEther("10000"));
@@ -123,7 +129,7 @@ describe("IntentRegistry (plan-aligned)", function () {
       .to.emit(registry, "IntentFulfilled")
       .withArgs(intentId, solver.address, params.minDestAmount, paymentTxHash)
       .to.emit(verifier, "PaymentVerified")
-      .withArgs(intentId, solver.address, params.minDestAmount);
+      .withArgs(intentId, solver.address, params.maxSolverFee);
 
     const fulfilled = await registry.getIntent(intentId);
     expect(fulfilled.status).to.equal(1); // Fulfilled

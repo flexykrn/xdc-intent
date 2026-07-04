@@ -52,6 +52,7 @@ interface IIntentRegistry {
     function totalIntentsFulfilled() external view returns (uint256);
     function getTotalIntents() external view returns (uint256);
     function setPaymentVerifier(address verifier) external;
+    function setSolverRegistry(address registry) external;
     function pause() external;
     function unpause() external;
 

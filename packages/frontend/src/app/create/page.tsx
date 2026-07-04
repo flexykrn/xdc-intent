@@ -23,9 +23,9 @@ const expiryOptions = [
 ];
 
 const tokens: TokenInfo[] = [
-  { symbol: "XDC", name: "XDC Network", address: "0x0000000000000000000000000000000000000000" },
-  { symbol: "MUSDC", name: "Mock USDC", address: "0xa3f37BBd132C6DA9088B4A63622CacbCBee394A4" },
-  { symbol: "MXDC", name: "Mock XDC", address: "0x6DC37E3ca98E49e923E953c5A7229726513eaf6E" },
+  { symbol: "XDC", name: "XDC Network", address: "0xC4db3B088781431ea29201BaF931FD4B731F3B91" },
+  { symbol: "MUSDC", name: "Mock USDC", address: "0x86530A99784D188e8343e119140114d9e5fD0546" },
+  { symbol: "MXDC", name: "Mock XDC", address: "0xfe4E746cA450C46Fe6Ede5EAc184A7F2082B2312" },
 ];
 
 const DEFAULT_SOLVER = "0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe";
@@ -74,8 +74,10 @@ export default function CreatePage() {
         maxSolverFee: ethers.parseEther(maxSolverFee),
         expiry: expiryTimestamp,
         nonce,
-        allowedSolvers: [DEFAULT_SOLVER],
+        allowedSolvers: [], // open to all registered solvers
       };
+
+      const signed = await sdk.signIntent(address, params);
 
       // Approve escrow to spend ERC-20 source tokens.
       if (fromToken.address !== ethers.ZeroAddress) {
@@ -90,7 +92,7 @@ export default function CreatePage() {
         toast.success("Token approved", { id: "approve" });
       }
 
-      const tx = await sdk.submitIntent(await sdk.signIntent(address, params));
+      const tx = await sdk.submitIntent(signed);
       toast.loading("Creating intent...", { id: "create" });
       await tx.wait();
       toast.success("Intent created successfully", { id: "create" });
@@ -99,7 +101,7 @@ export default function CreatePage() {
       setMinOutput("");
       setTimeout(() => {
         setStatus("idle");
-        router.push("/my-intents");
+        router.push("/market");
       }, 2000);
     } catch (e: any) {
       console.error("Create intent failed", e);

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ethers } from "ethers";
-import { CONTRACTS, INTENT_REGISTRY_ABI, RPC_URL } from "@/lib/contracts";
+import { CONTRACTS, INTENT_REGISTRY_ABI, RPC_URL, SOLVER_REGISTRY_ABI } from "@/lib/contracts";
 
 export const dynamic = "force-dynamic";
 
@@ -8,23 +8,29 @@ export async function GET() {
   try {
     const provider = new ethers.JsonRpcProvider(RPC_URL);
     const registry = new ethers.Contract(CONTRACTS.intentRegistry, INTENT_REGISTRY_ABI, provider);
-    let total: bigint = BigInt(0);
-    try {
-      total = await registry.getTotalIntents();
-    } catch {
-      // Contract may not expose a total intent counter on this deployment.
-    }
+    const solverRegistry = new ethers.Contract(CONTRACTS.solverRegistry, SOLVER_REGISTRY_ABI, provider);
+
+    const [total, fulfilled, solverCount] = await Promise.all([
+      registry.getTotalIntents().catch(() => BigInt(0)),
+      registry.totalIntentsFulfilled().catch(() => BigInt(0)),
+      solverRegistry.getSolverCount().catch(() => BigInt(0)),
+    ]);
+
+    const successRate = total > BigInt(0) ? Number((fulfilled * BigInt(100)) / total) : 0;
+
     return NextResponse.json({
       total: total.toString(),
-      activeSolvers: 1,
-      successRate: "99%",
+      fulfilled: fulfilled.toString(),
+      activeSolvers: Number(solverCount),
+      successRate: `${successRate}%`,
     });
   } catch (e: any) {
     console.error("Stats API error:", e);
     return NextResponse.json({
       total: "0",
-      activeSolvers: 1,
-      successRate: "99%",
+      fulfilled: "0",
+      activeSolvers: 0,
+      successRate: "0%",
       error: e.message || "Failed to fetch stats",
     }, { status: 500 });
   }

@@ -4,66 +4,39 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { ethers } from 'ethers';
 import dotenv from 'dotenv';
-import { paymentMiddleware, x402ResourceServer } from '@x402/express';
-import { CAIP2 } from '@xdc-intent/constants';
-import { TxHashEvmScheme, TxHashFacilitatorClient } from './x402';
+import {
+  getIntentDetails,
+  getIntentPaymentRequirements,
+  addQuote,
+  getQuotes,
+  getBestQuote,
+  validatePaymentPayload,
+  safeBase64Encode,
+  safeBase64Decode,
+  type Quote,
+} from './store';
+import { verifyEIP3009, settleEIP3009 } from './eip3009';
 
 dotenv.config();
 
-// ========== Configuration ==========
-
 const PORT = process.env.PORT || 3000;
 const RPC_URL = process.env.RPC_URL || 'https://erpc.apothem.network';
-const CHAIN_ID = parseInt(process.env.CHAIN_ID || '51');
 const SIGNER_KEY = process.env.MIDDLEWARE_SIGNER_PRIVATE_KEY || '';
 const API_KEY = process.env.MIDDLEWARE_API_KEY || 'testnet2024';
 const INTENT_REGISTRY_ADDRESS = process.env.INTENT_REGISTRY_ADDRESS || '';
-const NETWORK = CAIP2[CHAIN_ID] || `eip155:${CHAIN_ID}`;
 
-// ========== In-Memory Store ==========
-
-interface StoredPayment {
-  intentId: string;
-  solverAddress: string;
-  amount: string;
-  txHash: string;
-  createdAt: number;
-}
-
-const payments = new Map<string, StoredPayment>();
-const webhooks = new Map<string, string>();
-
-// ========== Metrics ==========
+const provider = new ethers.JsonRpcProvider(RPC_URL);
+const signer = new ethers.Wallet(SIGNER_KEY, provider);
 
 const metrics = {
   totalRequests: 0,
   proofsIssued: 0,
   totalErrors: 0,
   paymentsAccepted: 0,
-  refundsIssued: 0,
+  quotesReceived: 0,
 };
 
-// ========== Blockchain Setup ==========
-
-const provider = new ethers.JsonRpcProvider(RPC_URL);
-const signer = new ethers.Wallet(SIGNER_KEY, provider);
-
-const IntentRegistryABI = [
-  'function getIntent(bytes32 intentId) external view returns (tuple(bytes32 intentId, address user, uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, bytes signature, address[] allowedSolvers, uint8 status, address solver, uint256 fulfilledAmount, bytes32 paymentTxHash))',
-];
-
-const intentRegistry = new ethers.Contract(INTENT_REGISTRY_ADDRESS, IntentRegistryABI, provider);
-
-// ========== x402 Setup ==========
-
-const facilitator = new TxHashFacilitatorClient(provider, signer.address);
-const resourceServer = new x402ResourceServer(facilitator)
-  .register(NETWORK as `eip155:${string}`, new TxHashEvmScheme());
-
-// ========== Express App ==========
-
 const app = express();
-
 app.use(helmet());
 app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') || '*' }));
 app.use(express.json());
@@ -74,8 +47,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// ========== API Key Authentication ==========
-
 const apiKeyAuth = (req: Request, res: Response, next: NextFunction) => {
   const apiKey = req.headers['x-api-key'];
   if (!apiKey || apiKey !== API_KEY) {
@@ -84,8 +55,6 @@ const apiKeyAuth = (req: Request, res: Response, next: NextFunction) => {
   }
   next();
 };
-
-// ========== Rate Limiting ==========
 
 const apiKeyLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -102,327 +71,138 @@ const addressLimiter = rateLimit({
   keyGenerator: (req: Request) => req.body.solverAddress || req.query.payer || req.ip,
 });
 
-// ========== Helper: Fetch Intent Details ==========
-
-async function getIntentDetails(intentId: string) {
-  const result = await intentRegistry.getIntent(intentId);
-  return {
-    intentId: result.intentId,
-    user: result.user,
-    sourceChainId: Number(result.sourceChainId),
-    sourceToken: result.sourceToken,
-    sourceAmount: result.sourceAmount,
-    destChainId: Number(result.destChainId),
-    destToken: result.destToken,
-    minDestAmount: result.minDestAmount,
-    maxSolverFee: result.maxSolverFee,
-    expiry: Number(result.expiry),
-    nonce: result.nonce,
-    allowedSolvers: result.allowedSolvers,
-    status: Number(result.status),
-    solver: result.solver,
-    fulfilledAmount: result.fulfilledAmount,
-    paymentTxHash: result.paymentTxHash,
-  };
-}
-
-// ========== Routes ==========
-
 app.get('/health', async (req: Request, res: Response) => {
-  const health = {
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    dependencies: {
-      rpc: 'connected',
-      contract: 'reachable',
-    },
-  };
-
+  const health = { status: 'ok', timestamp: new Date().toISOString(), dependencies: { rpc: 'connected', contract: 'reachable' } };
   try {
     await provider.getBlockNumber();
-  } catch (error) {
+  } catch {
     health.status = 'degraded';
     health.dependencies.rpc = 'disconnected';
   }
-
   try {
-    await intentRegistry.getIntent(ethers.ZeroHash);
-  } catch (error) {
+    await (new ethers.Contract(INTENT_REGISTRY_ADDRESS, ['function getIntent(bytes32) view returns (bool)'], provider)).getIntent(ethers.ZeroHash);
+  } catch {
     health.status = 'degraded';
     health.dependencies.contract = 'unreachable';
   }
-
   res.status(health.status === 'ok' ? 200 : 503).json(health);
 });
 
-// x402 payment-protected fulfillment route
-app.post(
-  '/v1/fulfill*',
-  paymentMiddleware(
-    {
-      'POST /v1/fulfill*': {
-        accepts: {
-          scheme: 'exact',
-          network: NETWORK as `eip155:${string}`,
-          price: { asset: '0x0000000000000000000000000000000000000000', amount: '0' },
-          payTo: signer.address,
-          maxTimeoutSeconds: 600,
-        },
-        description: 'Permission to fulfill an XDC intent after on-chain ERC-20 payment',
-      },
-    },
-    resourceServer,
-    { appName: 'XDC Intent Facilitator', testnet: CHAIN_ID !== 50 }
-  ),
-  (req: Request, res: Response) => {
-    res.json({
-      success: true,
-      message: 'Payment verified. You may fulfill the intent.',
-      middlewareAddress: signer.address,
-    });
+app.get('/v1/intents/:intentId/quotes', async (req: Request, res: Response) => {
+  try {
+    const quotes = getQuotes(req.params.intentId);
+    res.json({ intentId: req.params.intentId, quotes });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
-);
+});
 
-// Direct JSON payment endpoint (solver-friendly)
-app.post('/v1/pay', apiKeyAuth, apiKeyLimiter, addressLimiter, async (req: Request, res: Response) => {
-  const { intentId, solverAddress, paymentTxHash } = req.body;
-
-  if (!intentId || !solverAddress || !paymentTxHash) {
+app.post('/v1/quotes', apiKeyAuth, apiKeyLimiter, async (req: Request, res: Response) => {
+  const { intentId, solverAddress, outputAmount, feeBps, signature } = req.body;
+  if (!intentId || !solverAddress || !outputAmount || signature === undefined) {
     metrics.totalErrors++;
-    return res.status(400).json({ error: 'Missing intentId, solverAddress, or paymentTxHash' });
+    return res.status(400).json({ error: 'Missing intentId, solverAddress, outputAmount, or signature' });
   }
 
   try {
     const intent = await getIntentDetails(intentId);
-
     if (intent.status !== 0) {
-      metrics.totalErrors++;
+      return res.status(404).json({ error: 'Intent is not open' });
+    }
+    if (BigInt(outputAmount) < BigInt(intent.minDestAmount)) {
+      return res.status(400).json({ error: 'Quote below minDestAmount' });
+    }
+
+    const quote: Quote = {
+      intentId,
+      solverAddress: ethers.getAddress(solverAddress),
+      outputAmount: outputAmount.toString(),
+      feeBps: Number(feeBps) || 0,
+      signature,
+      createdAt: Date.now(),
+    };
+    addQuote(quote);
+    metrics.quotesReceived++;
+    res.json({ success: true, quote });
+  } catch (error: any) {
+    metrics.totalErrors++;
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/v1/intents/:intentId/payment-required', async (req: Request, res: Response) => {
+  try {
+    const intent = await getIntentDetails(req.params.intentId);
+    if (intent.status !== 0) {
+      return res.status(404).json({ error: 'Intent is not open' });
+    }
+    const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+    const paymentRequired = getIntentPaymentRequirements(req.params.intentId, intent.destToken, intent.maxSolverFee, signer.address, url);
+    res.setHeader('PAYMENT-REQUIRED', safeBase64Encode(paymentRequired));
+    res.status(402).json({ ...paymentRequired, error: 'PAYMENT-SIGNATURE header required' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/v1/intents/:intentId/settle', apiKeyAuth, addressLimiter, async (req: Request, res: Response) => {
+  const paymentHeader = req.headers['payment-signature'] as string | undefined;
+  if (!paymentHeader) {
+    return res.status(402).json({ error: 'Missing PAYMENT-SIGNATURE header' });
+  }
+
+  try {
+    const intent = await getIntentDetails(req.params.intentId);
+    if (intent.status !== 0) {
       return res.status(404).json({ error: 'Intent is not open' });
     }
 
-    const requirements = {
-      scheme: 'exact',
-      network: NETWORK as `eip155:${string}`,
-      asset: String(intent.destToken),
-      amount: String(intent.minDestAmount),
-      payTo: intent.user,
-      maxTimeoutSeconds: 600,
-      extra: { intentId },
-    };
+    const decoded = safeBase64Decode(paymentHeader);
+    if (!validatePaymentPayload(decoded)) {
+      return res.status(400).json({ error: 'Invalid payment signature payload' });
+    }
+    const paymentPayload = decoded;
 
-    const paymentPayload = {
-      x402Version: 2,
-      accepted: requirements,
-      payload: {
-        transactionHash: paymentTxHash,
-        payer: solverAddress,
-        intentId,
-      },
-    };
+    const requirements = getIntentPaymentRequirements(req.params.intentId, intent.destToken, intent.maxSolverFee, signer.address, `${req.protocol}://${req.get('host')}${req.originalUrl}`).accepts[0];
 
-    const settleResult = await facilitator.settle(paymentPayload, requirements);
+    const verifyResult = await verifyEIP3009(provider, requirements, paymentPayload);
+    if (!verifyResult.isValid) {
+      metrics.totalErrors++;
+      return res.status(402).json({ error: verifyResult.invalidReason, message: verifyResult.invalidMessage });
+    }
 
+    const settleResult = await settleEIP3009(signer, requirements, paymentPayload);
     if (!settleResult.success) {
       metrics.totalErrors++;
-      return res.status(402).json({
-        error: settleResult.errorMessage || settleResult.errorReason || 'Payment verification failed',
-      });
+      return res.status(402).json({ error: settleResult.errorReason, message: settleResult.errorMessage });
     }
 
-    payments.set(`${intentId}-${solverAddress}`, {
-      intentId,
-      solverAddress,
-      amount: String(intent.minDestAmount),
-      txHash: paymentTxHash,
-      createdAt: Math.floor(Date.now() / 1000),
-    });
-
-    metrics.proofsIssued++;
     metrics.paymentsAccepted++;
-    sendWebhook(solverAddress, 'payment_accepted', { intentId, solverAddress, txHash: paymentTxHash });
+    metrics.proofsIssued++;
 
-    res.json({
-      success: true,
-      intentId,
-      solverAddress,
-      txHash: paymentTxHash,
-      middlewareAddress: signer.address,
-    });
+    const response = { success: true, transaction: settleResult.transaction, intentId: req.params.intentId };
+    res.setHeader('PAYMENT-RESPONSE', safeBase64Encode(response));
+    res.json(response);
   } catch (error: any) {
     metrics.totalErrors++;
     res.status(500).json({ error: error.message });
   }
 });
 
-// Payment request details for a specific intent
-app.get('/v1/payment-request', async (req: Request, res: Response) => {
-  const { intentId } = req.query;
-
-  if (!intentId || typeof intentId !== 'string') {
-    return res.status(400).json({ error: 'Missing intentId query parameter' });
-  }
-
-  try {
-    const intent = await getIntentDetails(intentId);
-
-    if (intent.status !== 0) {
-      return res.status(404).json({ error: 'Intent is not open' });
-    }
-
-    res.status(200).json({
-      intentId,
-      network: NETWORK,
-      scheme: 'exact',
-      asset: intent.destToken,
-      amount: String(intent.minDestAmount),
-      payTo: intent.user,
-      maxTimeoutSeconds: 600,
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/v1/payment-request/:intentId', async (req: Request, res: Response) => {
-  const { intentId } = req.params;
-
-  try {
-    const intent = await getIntentDetails(intentId);
-
-    if (intent.status !== 0) {
-      return res.status(404).json({ error: 'Intent is not open' });
-    }
-
-    res.status(200).json({
-      intentId,
-      network: NETWORK,
-      scheme: 'exact',
-      asset: intent.destToken,
-      amount: String(intent.minDestAmount),
-      payTo: intent.user,
-      maxTimeoutSeconds: 600,
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Verify a payment tx hash directly
-app.get('/v1/verify', async (req: Request, res: Response) => {
-  const { intentId, solverAddress, txHash } = req.query;
-
-  if (!intentId || !solverAddress || !txHash) {
-    return res.status(400).json({ error: 'Missing intentId, solverAddress, or txHash' });
-  }
-
-  try {
-    const intent = await getIntentDetails(intentId as string);
-    const requirements = {
-      scheme: 'exact',
-      network: NETWORK as `eip155:${string}`,
-      asset: String(intent.destToken),
-      amount: String(intent.minDestAmount),
-      payTo: intent.user,
-      maxTimeoutSeconds: 600,
-      extra: { intentId },
-    };
-
-    const paymentPayload = {
-      x402Version: 2,
-      accepted: requirements,
-      payload: {
-        transactionHash: txHash as string,
-        payer: solverAddress as string,
-        intentId,
-      },
-    };
-
-    const verifyResult = await facilitator.verify(paymentPayload, requirements);
-    res.json({ valid: verifyResult.isValid, reason: verifyResult.invalidReason, payer: verifyResult.payer });
-  } catch (error: any) {
-    res.status(500).json({ valid: false, error: error.message });
-  }
-});
-
-// Metrics
 app.get('/v1/metrics', (req: Request, res: Response) => {
   res.json(metrics);
 });
 
-// Webhook registration
-app.post('/v1/webhooks', apiKeyAuth, (req: Request, res: Response) => {
-  const { solverAddress, url } = req.body;
-
-  if (!solverAddress || !url) {
-    return res.status(400).json({ error: 'Missing solverAddress or url' });
-  }
-
-  webhooks.set(solverAddress.toLowerCase(), url);
-  res.json({ success: true, solverAddress, url });
-});
-
-// Refund endpoint
-app.post('/v1/refund', apiKeyAuth, async (req: Request, res: Response) => {
-  const { intentId, solverAddress } = req.body;
-
-  if (!intentId || !solverAddress) {
-    return res.status(400).json({ error: 'Missing intentId or solverAddress' });
-  }
-
+app.get('/v1/intents/:intentId', async (req: Request, res: Response) => {
   try {
-    const intent = await getIntentDetails(intentId);
-
-    if (intent.status === 1) {
-      return res.status(400).json({ error: 'Intent already fulfilled. Cannot refund.' });
-    }
-
-    const payment = payments.get(`${intentId}-${solverAddress}`);
-    if (!payment) {
-      return res.status(404).json({ error: 'Payment not found' });
-    }
-
-    const paymentTime = payment.createdAt;
-    const now = Math.floor(Date.now() / 1000);
-    if (now - paymentTime > 86400) {
-      return res.status(400).json({ error: 'Refund period expired (24 hours)' });
-    }
-
-    metrics.refundsIssued++;
-    sendWebhook(solverAddress, 'payment_refunded', { intentId, solverAddress, amount: payment.amount });
-
-    res.json({ success: true, message: 'Refund processed', intentId, solverAddress });
+    const intent = await getIntentDetails(req.params.intentId);
+    res.json(intent);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// ========== Webhook Helper ==========
-
-async function sendWebhook(solverAddress: string, eventType: string, payload: any) {
-  try {
-    const url = webhooks.get(solverAddress.toLowerCase());
-    if (!url) return;
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), parseInt(process.env.WEBHOOK_TIMEOUT || '5000'));
-
-    await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ eventType, timestamp: new Date().toISOString(), ...payload }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-  } catch (error) {
-    console.error('Webhook failed:', error);
-  }
-}
-
-// ========== Graceful Shutdown ==========
-
 let isShuttingDown = false;
-
 const gracefulShutdown = () => {
   if (isShuttingDown) return;
   isShuttingDown = true;
@@ -440,12 +220,9 @@ const gracefulShutdown = () => {
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
 
-// ========== Start Server ==========
-
 const server = app.listen(PORT, () => {
   console.log(`Middleware running on port ${PORT}`);
   console.log(`Signer address: ${signer.address}`);
-  console.log(`Network: ${NETWORK} (Chain ID: ${CHAIN_ID})`);
 });
 
 export default app;
