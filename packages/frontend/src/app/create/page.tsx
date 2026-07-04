@@ -1,7 +1,7 @@
 "use client";
 
 import { useWallet } from "@/components/providers";
-import { XDCIntentSDK, IntentParams } from "@xdc-intent/sdk";
+import { IntentParams } from "@xdc-intent/sdk";
 import { ethers } from "ethers";
 import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
@@ -27,8 +27,6 @@ const tokens: TokenInfo[] = [
   { symbol: "MUSDC", name: "Mock USDC", address: "0x86530A99784D188e8343e119140114d9e5fD0546" },
   { symbol: "MXDC", name: "Mock XDC", address: "0xfe4E746cA450C46Fe6Ede5EAc184A7F2082B2312" },
 ];
-
-const DEFAULT_SOLVER = "0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe";
 
 export default function CreatePage() {
   const { isConnected, sdk, address } = useWallet();
@@ -103,9 +101,10 @@ export default function CreatePage() {
         setStatus("idle");
         router.push("/market");
       }, 2000);
-    } catch (e: any) {
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error("Failed to create intent");
       console.error("Create intent failed", e);
-      toast.error(e?.reason || e?.message || "Failed to create intent", { id: "create" });
+      toast.error(err.message || "Failed to create intent", { id: "create" });
       setStatus("error");
       setTimeout(() => setStatus("idle"), 3000);
     } finally {

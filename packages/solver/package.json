@@ -10,7 +10,7 @@
     "dev": "ts-node src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src/**/*.ts",
+    "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },

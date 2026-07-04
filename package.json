@@ -21,6 +21,7 @@
   "devDependencies": {
     "@changesets/cli": "^2.27.1",
     "handlebars": "^4.7.9",
+    "hardhat": "^2.19.0",
     "prettier": "^3.2.5",
     "turbo": "^1.12.4",
     "typescript": "^5.3.3"

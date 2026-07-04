@@ -16,6 +16,16 @@ interface WalletContextType {
   sdk: XDCIntentSDK | null;
 }
 
+interface EthereumProvider {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+  on: (event: string, handler: (...args: unknown[]) => void) => void;
+  removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
+}
+
+interface WindowWithEthereum {
+  ethereum?: EthereumProvider;
+}
+
 const WalletContext = createContext<WalletContextType>({
   address: null,
   isConnected: false,
@@ -27,6 +37,11 @@ const WalletContext = createContext<WalletContextType>({
   sdk: null,
 });
 
+function getEthereum(): EthereumProvider | undefined {
+  if (typeof window === "undefined") return undefined;
+  return (window as unknown as WindowWithEthereum).ethereum;
+}
+
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [address, setAddress] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -35,35 +50,56 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [signer, setSigner] = useState<ethers.JsonRpcSigner | null>(null);
   const [sdk, setSdk] = useState<XDCIntentSDK | null>(null);
 
+  const disconnect = () => {
+    setAddress(null);
+    setIsConnected(false);
+    setProvider(null);
+    setSigner(null);
+    setSdk(null);
+  };
+
   useEffect(() => {
-    if (typeof window !== "undefined" && (window as any).ethereum) {
-      const eth = (window as any).ethereum;
-      eth.on("accountsChanged", (accounts: string[]) => {
-        if (accounts.length === 0) {
-          disconnect();
-        } else {
-          setAddress(accounts[0]);
-        }
-      });
-      eth.on("chainChanged", () => {
-        window.location.reload();
-      });
-    }
+    const eth = getEthereum();
+    if (!eth) return;
+
+    const handleAccountsChanged = (...args: unknown[]) => {
+      const accounts = args[0];
+      if (!Array.isArray(accounts) || accounts.length === 0) {
+        disconnect();
+      } else if (typeof accounts[0] === "string") {
+        setAddress(accounts[0]);
+      }
+    };
+
+    eth.on("accountsChanged", handleAccountsChanged);
+    eth.on("chainChanged", () => {
+      window.location.reload();
+    });
+
+    return () => {
+      if (eth.removeListener) {
+        eth.removeListener("accountsChanged", handleAccountsChanged);
+      }
+    };
   }, []);
 
   const connect = async () => {
-    if (typeof window === "undefined" || !(window as any).ethereum) {
+    const eth = getEthereum();
+    if (!eth) {
       alert("Please install MetaMask or XDC Pay");
       return;
     }
 
     setIsConnecting(true);
     try {
-      const eth = (window as any).ethereum;
-      const accounts = await eth.request({ method: "eth_requestAccounts" });
+      const accountsResponse = await eth.request({ method: "eth_requestAccounts" });
+      if (!Array.isArray(accountsResponse) || accountsResponse.length === 0) {
+        throw new Error("No accounts found");
+      }
+      const accounts = accountsResponse.filter((a): a is string => typeof a === "string");
       if (accounts.length === 0) throw new Error("No accounts found");
 
-      let browserProvider = new ethers.BrowserProvider(eth);
+      let browserProvider = new ethers.BrowserProvider(eth as ethers.Eip1193Provider);
       const network = await browserProvider.getNetwork();
 
       if (Number(network.chainId) !== 51) {
@@ -81,9 +117,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             }],
           });
         }
-        // Wait for the chain switch to propagate, then recreate provider.
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        browserProvider = new ethers.BrowserProvider(eth);
+        browserProvider = new ethers.BrowserProvider(eth as ethers.Eip1193Provider);
         const newNetwork = await browserProvider.getNetwork();
         if (Number(newNetwork.chainId) !== 51) {
           throw new Error("Please switch to XDC Apothem Testnet (chain ID 51)");
@@ -102,20 +137,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setSdk(newSdk);
       setAddress(accounts[0]);
       setIsConnected(true);
-    } catch (error: any) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to connect wallet";
       console.error("Wallet connection failed:", error);
-      alert(error.message || "Failed to connect wallet");
+      alert(message);
     } finally {
       setIsConnecting(false);
     }
-  };
-
-  const disconnect = () => {
-    setAddress(null);
-    setIsConnected(false);
-    setProvider(null);
-    setSigner(null);
-    setSdk(null);
   };
 
   return (

@@ -16,7 +16,8 @@ export async function GET(request: Request) {
     const headers: Record<string, string> = {};
     res.headers.forEach((value, key) => { headers[key] = value; });
     return NextResponse.json(body, { status: res.status, headers });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

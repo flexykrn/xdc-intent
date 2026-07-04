@@ -1,8 +1,8 @@
 "use client";
 
 import { useWallet } from "@/components/providers";
-import { ethers } from "ethers";
-import { useEffect, useState } from "react";
+import { ethers, EventLog } from "ethers";
+import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Loader2, ArrowRight, Wallet, Activity } from "lucide-react";
 import Link from "next/link";
@@ -56,12 +56,16 @@ export default function MarketPage() {
   const [quotes, setQuotes] = useState<Record<string, Quote[]>>({});
   const [loading, setLoading] = useState(true);
 
-  async function fetchIntents() {
+  const fetchIntents = useCallback(async () => {
     if (!sdk) return;
     try {
       const filter = sdk.intentRegistry.filters.IntentSubmitted();
       const events = await sdk.intentRegistry.queryFilter(filter, -2000);
-      const ids = Array.from(new Set(events.map((e: any) => e.args.intentId)));
+      const ids = Array.from(new Set(
+        events
+          .filter((e): e is EventLog => e instanceof EventLog && e.args !== undefined)
+          .map((e) => e.args.intentId as string)
+      ));
       const details = await Promise.all(
         ids.map(async (id) => {
           try {
@@ -106,18 +110,18 @@ export default function MarketPage() {
         })
       );
       setQuotes(quoteMap);
-    } catch (e: any) {
+    } catch (e) {
       console.error("Failed to fetch market", e);
     } finally {
       setLoading(false);
     }
-  }
+  }, [sdk]);
 
   useEffect(() => {
     fetchIntents();
     const interval = setInterval(fetchIntents, 5000);
     return () => clearInterval(interval);
-  }, [sdk]);
+  }, [fetchIntents]);
 
   if (!isConnected) {
     return (

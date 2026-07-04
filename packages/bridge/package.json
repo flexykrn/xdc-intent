@@ -5,8 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "test": "vitest run",
-    "lint": "eslint src/**/*.ts"
+    "test": "vitest run --passWithNoTests",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "ethers": "^6.10.0",

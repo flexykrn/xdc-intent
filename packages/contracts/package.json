@@ -7,7 +7,7 @@
     "test": "hardhat test",
     "coverage": "hardhat coverage",
     "clean": "rm -rf artifacts cache typechain-types",
-    "lint": "solhint 'contracts/**/*.sol'",
+    "lint": "solhint contracts/**/*.sol",
     "deploy:local": "hardhat run scripts/deploy.ts --network hardhat",
     "deploy:apothem": "hardhat run scripts/deploy.ts --network apothem",
     "deploy:xdc": "hardhat run scripts/deploy.ts --network xdc",

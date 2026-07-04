@@ -14,7 +14,8 @@ export async function GET(request: Request) {
     const res = await fetch(`${MIDDLEWARE_URL}/v1/intents/${intentId}/quotes`);
     const body = await res.json();
     return NextResponse.json(body, { status: res.status });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message, quotes: [] }, { status: 500 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: message, quotes: [] }, { status: 500 });
   }
 }

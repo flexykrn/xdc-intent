@@ -4,7 +4,7 @@ const MIDDLEWARE_URL = process.env.MIDDLEWARE_URL || "http://localhost:3002";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+export async function GET() {
   return NextResponse.json({ error: "POST required with PAYMENT-SIGNATURE header" }, { status: 405 });
 }
 
@@ -31,7 +31,8 @@ export async function POST(request: Request) {
     const headers: Record<string, string> = {};
     res.headers.forEach((value, key) => { headers[key] = value; });
     return NextResponse.json(body, { status: res.status, headers });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

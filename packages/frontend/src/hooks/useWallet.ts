@@ -2,11 +2,6 @@ import { useState, useEffect, useCallback } from "react";
 import { ethers } from "ethers";
 import toast from "react-hot-toast";
 
-// WalletConnect v2 Ethereum Provider
-// Note: Requires @walletconnect/ethereum-provider package
-// Install: npm install @walletconnect/ethereum-provider
-// For now, WalletConnect is optional - falls back to injected wallet only
-
 const XDC_TESTNET = {
   chainId: 51,
   name: "XDC Apothem Testnet",
@@ -19,7 +14,6 @@ const XDC_TESTNET = {
   blockExplorerUrl: "https://apothem.blocksscan.io",
 };
 
-// Project ID from WalletConnect Cloud (get one at https://cloud.walletconnect.com)
 const WALLET_CONNECT_PROJECT_ID = "YOUR_PROJECT_ID";
 
 interface WalletState {
@@ -31,21 +25,31 @@ interface WalletState {
   walletType: "injected" | "walletconnect" | null;
 }
 
-// Lazy load WalletConnect to avoid SSR issues and missing package
-let EthereumProvider: any = null;
+interface EthereumProvider {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+  on: (event: string, handler: (...args: unknown[]) => void) => void;
+  removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
+  enable?: () => Promise<unknown[]>;
+}
+
+let EthereumProviderClass: typeof import("@walletconnect/ethereum-provider").default | null = null;
 
 async function loadWalletConnect() {
-  if (!EthereumProvider) {
+  if (!EthereumProviderClass) {
     try {
-      // @ts-ignore - optional dependency
       const mod = await import("@walletconnect/ethereum-provider");
-      EthereumProvider = mod.default;
-    } catch (error) {
+      EthereumProviderClass = mod.default;
+    } catch {
       console.warn("@walletconnect/ethereum-provider not installed");
-      EthereumProvider = null;
+      EthereumProviderClass = null;
     }
   }
-  return EthereumProvider;
+  return EthereumProviderClass;
+}
+
+function getInjectedProvider(): EthereumProvider | undefined {
+  if (typeof window === "undefined") return undefined;
+  return (window as unknown as { ethereum?: EthereumProvider }).ethereum;
 }
 
 export function useWallet() {
@@ -60,18 +64,42 @@ export function useWallet() {
 
   const [isLoading, setIsLoading] = useState(false);
 
-  // Check for existing connection on mount
-  useEffect(() => {
-    checkConnection();
-  }, []);
+  const disconnect = useCallback(async () => {
+    if (state.walletType === "walletconnect") {
+      try {
+        const ProviderClass = await loadWalletConnect();
+        if (!ProviderClass) return;
+        const wcProvider = await ProviderClass.init({
+          projectId: WALLET_CONNECT_PROJECT_ID,
+          chains: [XDC_TESTNET.chainId],
+          showQrModal: false,
+        });
+        await wcProvider.disconnect();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Disconnect failed";
+        console.log("WalletConnect disconnect error:", message);
+      }
+    }
 
-  const checkConnection = async () => {
+    setState({
+      address: null,
+      signer: null,
+      provider: null,
+      chainId: null,
+      isConnected: false,
+      walletType: null,
+    });
+
+    toast.success("Wallet disconnected");
+  }, [state.walletType]);
+
+  const checkConnection = useCallback(async () => {
     if (typeof window === "undefined") return;
 
-    // Check injected wallet (MetaMask, etc.)
-    if (window.ethereum) {
+    const injected = getInjectedProvider();
+    if (injected) {
       try {
-        const provider = new ethers.BrowserProvider(window.ethereum);
+        const provider = new ethers.BrowserProvider(injected as ethers.Eip1193Provider);
         const accounts = await provider.listAccounts();
         if (accounts.length > 0) {
           const signer = await provider.getSigner();
@@ -85,39 +113,43 @@ export function useWallet() {
             walletType: "injected",
           });
         }
-      } catch (error) {
+      } catch {
         console.log("No injected wallet connected");
       }
     }
-  };
+  }, []);
 
-  const connectInjected = async () => {
+  useEffect(() => {
+    checkConnection();
+  }, [checkConnection]);
+
+  const connectInjected = useCallback(async () => {
     if (typeof window === "undefined") return;
 
-    if (!window.ethereum) {
+    const injected = getInjectedProvider();
+    if (!injected) {
       toast.error("No wallet found. Please install MetaMask or another wallet.");
       return;
     }
 
     setIsLoading(true);
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
+      const provider = new ethers.BrowserProvider(injected as ethers.Eip1193Provider);
       await provider.send("eth_requestAccounts", []);
       const signer = await provider.getSigner();
       const address = await signer.getAddress();
       const network = await provider.getNetwork();
 
-      // Check if on correct network
       if (Number(network.chainId) !== XDC_TESTNET.chainId) {
         try {
-          await window.ethereum.request({
+          await injected.request({
             method: "wallet_switchEthereumChain",
             params: [{ chainId: "0x" + XDC_TESTNET.chainId.toString(16) }],
           });
-        } catch (switchError: any) {
-          // If network doesn't exist, add it
-          if (switchError.code === 4902) {
-            await window.ethereum.request({
+        } catch (switchError) {
+          const err = switchError instanceof Error ? switchError : new Error("Switch chain failed");
+          if ((err as Error & { code?: number }).code === 4902) {
+            await injected.request({
               method: "wallet_addEthereumChain",
               params: [
                 {
@@ -143,15 +175,16 @@ export function useWallet() {
       });
 
       toast.success("Wallet connected!");
-    } catch (error: any) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to connect wallet";
       console.error("Connection error:", error);
-      toast.error(error.message || "Failed to connect wallet");
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const connectWalletConnect = async () => {
+  const connectWalletConnect = useCallback(async () => {
     if (typeof window === "undefined") return;
 
     if (WALLET_CONNECT_PROJECT_ID === "YOUR_PROJECT_ID") {
@@ -161,8 +194,12 @@ export function useWallet() {
 
     setIsLoading(true);
     try {
-      const EthereumProvider = await loadWalletConnect();
-      const wcProvider = await EthereumProvider.init({
+      const ProviderClass = await loadWalletConnect();
+      if (!ProviderClass) {
+        toast.error("WalletConnect provider not available");
+        return;
+      }
+      const wcProvider = await ProviderClass.init({
         projectId: WALLET_CONNECT_PROJECT_ID,
         chains: [XDC_TESTNET.chainId],
         showQrModal: true,
@@ -192,56 +229,28 @@ export function useWallet() {
         walletType: "walletconnect",
       });
 
-      // Listen for disconnect
       wcProvider.on("disconnect", () => {
         disconnect();
       });
 
       toast.success("Wallet connected via WalletConnect!");
-    } catch (error: any) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to connect via WalletConnect";
       console.error("WalletConnect error:", error);
-      toast.error(error.message || "Failed to connect via WalletConnect");
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [disconnect]);
 
-  const disconnect = useCallback(async () => {
-    if (state.walletType === "walletconnect") {
-      try {
-        const EthereumProvider = await loadWalletConnect();
-        const wcProvider = await EthereumProvider.init({
-          projectId: WALLET_CONNECT_PROJECT_ID,
-          chains: [XDC_TESTNET.chainId],
-        });
-        await wcProvider.disconnect();
-      } catch (error) {
-        console.log("WalletConnect disconnect error:", error);
-      }
-    }
-
-    setState({
-      address: null,
-      signer: null,
-      provider: null,
-      chainId: null,
-      isConnected: false,
-      walletType: null,
-    });
-
-    toast.success("Wallet disconnected");
-  }, [state.walletType]);
-
-  const getBalance = async (tokenAddress?: string): Promise<string> => {
+  const getBalance = useCallback(async (tokenAddress?: string): Promise<string> => {
     if (!state.provider || !state.address) return "0";
 
     try {
       if (!tokenAddress || tokenAddress === "0x0000000000000000000000000000000000000000") {
-        // Native XDC
         const balance = await state.provider.getBalance(state.address);
         return ethers.formatEther(balance);
       } else {
-        // ERC-20 token
         const erc20Abi = [
           "function balanceOf(address owner) view returns (uint256)",
           "function decimals() view returns (uint8)",
@@ -252,10 +261,11 @@ export function useWallet() {
         return ethers.formatUnits(balance, decimals);
       }
     } catch (error) {
-      console.error("Balance error:", error);
+      const message = error instanceof Error ? error.message : "Balance fetch failed";
+      console.error("Balance error:", message);
       return "0";
     }
-  };
+  }, [state.provider, state.address]);
 
   return {
     ...state,
@@ -267,9 +277,8 @@ export function useWallet() {
   };
 }
 
-// Extend Window interface for ethereum
 declare global {
   interface Window {
-    ethereum?: any;
+    ethereum?: EthereumProvider;
   }
 }

@@ -7,13 +7,33 @@ import { motion } from "framer-motion";
 import { Bot, ArrowRight, Loader2, CheckCircle } from "lucide-react";
 import toast from "react-hot-toast";
 
+interface PaymentRequired {
+  x402Version: number;
+  resource: { url: string; description?: string };
+  accepts: Array<{
+    scheme: string;
+    network: string;
+    asset: string;
+    amount: string;
+    payTo: string;
+    maxTimeoutSeconds: number;
+    extra: Record<string, unknown>;
+  }>;
+}
+
+interface SettleResult {
+  transaction?: string;
+  success?: boolean;
+  error?: string;
+}
+
 export default function AgentDemoPage() {
   const { isConnected, sdk, address } = useWallet();
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [intentId, setIntentId] = useState("");
-  const [paymentRequired, setPaymentRequired] = useState<any>(null);
-  const [result, setResult] = useState<any>(null);
+  const [paymentRequired, setPaymentRequired] = useState<PaymentRequired | null>(null);
+  const [result, setResult] = useState<SettleResult | null>(null);
 
   const service = {
     name: "RWA Token Minting Service",
@@ -49,8 +69,9 @@ export default function AgentDemoPage() {
       setIntentId(signed.intentId);
       setStep(1);
       toast.success("Intent submitted");
-    } catch (e: any) {
-      toast.error(e?.reason || e?.message || "Failed");
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error("Failed");
+      toast.error(err.message || "Failed");
     } finally {
       setLoading(false);
     }
@@ -60,12 +81,13 @@ export default function AgentDemoPage() {
     setLoading(true);
     try {
       const res = await fetch(`/api/payment-required?intentId=${intentId}`);
-      const body = await res.json();
+      const body = (await res.json()) as PaymentRequired;
       setPaymentRequired(body);
       setStep(2);
       toast.success("Received 402 payment required");
-    } catch (e: any) {
-      toast.error(e?.message || "Failed");
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error("Failed");
+      toast.error(err.message || "Failed");
     } finally {
       setLoading(false);
     }
@@ -75,12 +97,13 @@ export default function AgentDemoPage() {
     setLoading(true);
     try {
       const res = await fetch(`/api/settle?intentId=${intentId}`);
-      const body = await res.json();
+      const body = (await res.json()) as SettleResult;
       setResult(body);
       setStep(3);
       toast.success("Payment settled");
-    } catch (e: any) {
-      toast.error(e?.message || "Failed");
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error("Failed");
+      toast.error(err.message || "Failed");
     } finally {
       setLoading(false);
     }

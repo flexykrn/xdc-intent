@@ -1,27 +1,12 @@
 require('dotenv').config();
 require('@nomicfoundation/hardhat-ethers');
-require('@nomicfoundation/hardhat-toolbox');
-require('hardhat-deploy');
-require('@nomicfoundation/hardhat-verify');
-require('hardhat-gas-reporter');
-require('solidity-coverage');
 
 /** @type import('hardhat/config').HardhatUserConfig */
 const config = {
   solidity: {
     compilers: [
       {
-        version: '0.8.19',
-        settings: {
-          optimizer: {
-            enabled: true,
-            runs: 200,
-          },
-          viaIR: true,
-        },
-      },
-      {
-        version: '0.8.20',
+        version: '0.8.24',
         settings: {
           optimizer: {
             enabled: true,

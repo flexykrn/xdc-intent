@@ -24,14 +24,15 @@ export async function GET() {
       activeSolvers: Number(solverCount),
       successRate: `${successRate}%`,
     });
-  } catch (e: any) {
-    console.error("Stats API error:", e);
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error("Failed to fetch stats");
+    console.error("Stats API error:", err);
     return NextResponse.json({
       total: "0",
       fulfilled: "0",
       activeSolvers: 0,
       successRate: "0%",
-      error: e.message || "Failed to fetch stats",
+      error: err.message,
     }, { status: 500 });
   }
 }

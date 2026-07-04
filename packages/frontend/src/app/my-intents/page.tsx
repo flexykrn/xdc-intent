@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Clock, CheckCircle, XCircle, Loader2, AlertTriangle, ArrowRight, Wallet } from "lucide-react";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { ethers } from "ethers";
 
 export default function MyIntentsPage() {
@@ -16,7 +16,7 @@ export default function MyIntentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
 
-  async function fetchIntents() {
+  const fetchIntents = useCallback(async () => {
     if (!sdk || !address) return;
     try {
       setError(null);
@@ -31,13 +31,14 @@ export default function MyIntentsPage() {
         })
       );
       setIntents(details.filter((d): d is Intent => Boolean(d)));
-    } catch (e: any) {
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error("Failed to fetch your intents");
       console.error("Failed to fetch intents", e);
-      setError(e.message || "Failed to fetch your intents");
+      setError(err.message);
     } finally {
       setLoading(false);
     }
-  }
+  }, [sdk, address]);
 
   async function handleCancel(id: string) {
     if (!sdk) return;
@@ -48,8 +49,9 @@ export default function MyIntentsPage() {
       await tx.wait();
       toast.success("Intent cancelled", { id: "cancel" });
       fetchIntents();
-    } catch (e: any) {
-      toast.error(e?.reason || e?.message || "Failed to cancel", { id: "cancel" });
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error("Failed to cancel");
+      toast.error(err.message || "Failed to cancel", { id: "cancel" });
     } finally {
       setCancelling(null);
     }
@@ -63,7 +65,7 @@ export default function MyIntentsPage() {
     fetchIntents();
     const interval = setInterval(fetchIntents, 30000);
     return () => clearInterval(interval);
-  }, [address, sdk]);
+  }, [address, sdk, fetchIntents]);
 
   if (!isConnected) {
     return (
@@ -183,10 +185,3 @@ function StatusBadge({ status }: { status: IntentStatus }) {
   }
 }
 
-function formatAmount(amount: bigint): string {
-  try {
-    return Number(amount) / 1e18 + "";
-  } catch {
-    return amount.toString();
-  }
-}

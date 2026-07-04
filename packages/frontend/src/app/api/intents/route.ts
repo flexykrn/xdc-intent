@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ethers } from "ethers";
+import { ethers, EventLog } from "ethers";
 import { CONTRACTS, provider, INTENT_REGISTRY_ABI } from "@/lib/contracts";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,11 @@ export async function GET(request: Request) {
 
     const filter = registry.filters.IntentSubmitted();
     const events = await registry.queryFilter(filter, -2000);
-    const ids = Array.from(new Set(events.map((e: any) => e.args.intentId)));
+    const ids = Array.from(new Set(
+      events
+        .filter((e): e is EventLog => e instanceof EventLog && e.args !== undefined)
+        .map((e) => e.args.intentId as string)
+    ));
 
     const intents = await Promise.all(
       ids.map(async (id) => {
@@ -42,7 +46,8 @@ export async function GET(request: Request) {
       : intents.filter((i): i is NonNullable<typeof i> => i !== null);
 
     return NextResponse.json({ intents: filtered });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message, intents: [] }, { status: 500 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: message, intents: [] }, { status: 500 });
   }
 }
