@@ -137,7 +137,7 @@ app.get('/v1/intents/:intentId/payment-required', async (req: Request, res: Resp
       return res.status(404).json({ error: 'Intent is not open' });
     }
     const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
-    const paymentRequired = getIntentPaymentRequirements(req.params.intentId, intent.destToken, intent.maxSolverFee, signer.address, url);
+    const paymentRequired = await getIntentPaymentRequirements(req.params.intentId, intent.destToken, intent.maxSolverFee, signer.address, url);
     res.setHeader('PAYMENT-REQUIRED', safeBase64Encode(paymentRequired));
     res.status(402).json({ ...paymentRequired, error: 'PAYMENT-SIGNATURE header required' });
   } catch (error: any) {
@@ -163,7 +163,7 @@ app.post('/v1/intents/:intentId/settle', apiKeyAuth, addressLimiter, async (req:
     }
     const paymentPayload = decoded;
 
-    const requirements = getIntentPaymentRequirements(req.params.intentId, intent.destToken, intent.maxSolverFee, signer.address, `${req.protocol}://${req.get('host')}${req.originalUrl}`).accepts[0];
+    const requirements = (await getIntentPaymentRequirements(req.params.intentId, intent.destToken, intent.maxSolverFee, signer.address, `${req.protocol}://${req.get('host')}${req.originalUrl}`)).accepts[0];
 
     const verifyResult = await verifyEIP3009(provider, requirements, paymentPayload);
     if (!verifyResult.isValid) {

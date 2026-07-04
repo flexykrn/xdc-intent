@@ -62,7 +62,38 @@ export interface Quote {
 
 const quotes = new Map<string, Quote[]>();
 
-export function getIntentPaymentRequirements(intentId: string, destToken: string, maxSolverFee: string, payTo: string, url: string): PaymentRequired {
+const tokenMetadataCache = new Map<string, { name: string; version: string }>();
+
+async function getTokenMetadata(tokenAddress: string): Promise<{ name: string; version: string }> {
+  const cached = tokenMetadataCache.get(tokenAddress);
+  if (cached) return cached;
+
+  try {
+    const token = new ethers.Contract(
+      tokenAddress,
+      [
+        'function name() view returns (string)',
+        'function version() view returns (string)',
+      ],
+      provider
+    );
+    const name = await token.name();
+    let version = '1';
+    try {
+      version = await token.version();
+    } catch {
+      // OpenZeppelin EIP712 defaults to "1"
+    }
+    const metadata = { name, version };
+    tokenMetadataCache.set(tokenAddress, metadata);
+    return metadata;
+  } catch (error: any) {
+    return { name: 'Mock Token', version: '1' };
+  }
+}
+
+export async function getIntentPaymentRequirements(intentId: string, destToken: string, maxSolverFee: string, payTo: string, url: string): Promise<PaymentRequired> {
+  const metadata = await getTokenMetadata(destToken);
   return {
     x402Version: 2,
     resource: {
@@ -77,7 +108,7 @@ export function getIntentPaymentRequirements(intentId: string, destToken: string
         amount: maxSolverFee,
         payTo,
         maxTimeoutSeconds: 600,
-        extra: { intentId },
+        extra: { intentId, tokenName: metadata.name, tokenVersion: metadata.version },
       },
     ],
   };
