@@ -17,6 +17,11 @@ export interface PendingIntent {
   transactionHash: string;
   status: 'pending' | 'in-flight' | 'completed' | 'failed';
   createdAt: number;
+  attempts?: number;
+  nextRetryAt?: number;
+  lastError?: string;
+  quoted?: boolean;
+  outputAmount?: string;
 }
 
 export interface DecisionLog {
@@ -105,6 +110,44 @@ export class StateManager {
     }
   }
 
+  getIntent(intentId: string): PendingIntent | undefined {
+    return this.pending.get(intentId);
+  }
+
+  scheduleRetry(intentId: string, error: string, delayMs: number, maxRetries: number): boolean {
+    const intent = this.pending.get(intentId);
+    if (!intent) return false;
+    const attempts = (intent.attempts || 0) + 1;
+    if (attempts >= maxRetries) {
+      this.markFailed(intentId);
+      return false;
+    }
+    intent.attempts = attempts;
+    intent.lastError = error;
+    intent.nextRetryAt = Date.now() + delayMs;
+    intent.status = 'pending';
+    this.save().catch(() => {});
+    return true;
+  }
+
+  getRetryableIntents(now: number, maxRetries: number): PendingIntent[] {
+    return Array.from(this.pending.values()).filter((i) => {
+      if (i.status !== 'pending') return false;
+      const attempts = i.attempts || 0;
+      if (attempts >= maxRetries) return false;
+      return (i.nextRetryAt || 0) <= now;
+    });
+  }
+
+  setQuoted(intentId: string, outputAmount: bigint): void {
+    const intent = this.pending.get(intentId);
+    if (intent) {
+      intent.quoted = true;
+      intent.outputAmount = outputAmount.toString();
+      this.save().catch(() => {});
+    }
+  }
+
   markCompleted(intentId: string): void {
     const intent = this.pending.get(intentId);
     if (intent) {
@@ -158,13 +201,15 @@ export class StateManager {
     return this.decisions.filter((d) => d.intentId === intentId).sort((a, b) => b.timestamp - a.timestamp);
   }
 
-  getMetrics(): { pending: number; inFlight: number; completed: number; failed: number; totalSeen: number } {
+  getMetrics(): { pending: number; inFlight: number; completed: number; failed: number; totalSeen: number; retryable: number } {
+    const now = Date.now();
     return {
       pending: this.getPendingIntents().length,
       inFlight: this.getInFlightIntents().length,
       completed: this.getCompletedIntents().length,
       failed: this.getFailedIntents().length,
       totalSeen: this.seenIntentIds.size,
+      retryable: this.getRetryableIntents(now, Infinity).length,
     };
   }
 

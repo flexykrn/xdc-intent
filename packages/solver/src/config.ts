@@ -30,6 +30,9 @@ export const SolverConfigSchema = z.object({
   bridgeAddress: z.string().regex(/^$|^0x[a-fA-F0-9]{40}$/).transform((v) => v || undefined),
   minDestAmount: z.number().min(0).max(1),
   minSourceAmount: z.bigint().min(0n),
+  maxRetries: z.number().int().min(0).default(3),
+  retryBaseDelayMs: z.number().int().min(100).default(2000),
+  retryMaxDelayMs: z.number().int().min(100).default(30000),
 });
 
 export type SolverConfig = z.infer<typeof SolverConfigSchema>;
@@ -61,6 +64,9 @@ export function loadConfig(): SolverConfig {
     bridgeAddress: process.env.BRIDGE_ADDRESS,
     minDestAmount: parseFloat(process.env.MIN_DEST_AMOUNT || '0.95'),
     minSourceAmount: process.env.MIN_SOURCE_AMOUNT ? BigInt(process.env.MIN_SOURCE_AMOUNT) : 1000n,
+    maxRetries: parseInt(process.env.MAX_RETRIES || '3', 10),
+    retryBaseDelayMs: parseInt(process.env.RETRY_BASE_DELAY_MS || '2000', 10),
+    retryMaxDelayMs: parseInt(process.env.RETRY_MAX_DELAY_MS || '30000', 10),
   };
 
   const result = SolverConfigSchema.safeParse(raw);

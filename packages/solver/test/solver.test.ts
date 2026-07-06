@@ -5,6 +5,7 @@ import { IntentEvaluator } from '../src/evaluator';
 import { MockDEXAdapter } from '../src/adapters/dex';
 import { StateManager } from '../src/state';
 import { IntentEvent } from '../src/watcher';
+import { CircuitBreaker } from '../src/circuit-breaker';
 import winston from 'winston';
 
 describe('Solver Components', () => {
@@ -32,6 +33,9 @@ describe('Solver Components', () => {
     solverFeeBps: 30,
     minDestAmount: 0.95,
     minSourceAmount: ethers.parseEther('0.001'),
+    maxRetries: 3,
+    retryBaseDelayMs: 100,
+    retryMaxDelayMs: 1000,
   };
 
   const mockLogger = winston.createLogger({
@@ -195,6 +199,69 @@ describe('Solver Components', () => {
       const logs = state.getDecisionLogs('0x123');
       expect(logs).toHaveLength(1);
       expect(logs[0].decision).toBe('detected');
+    });
+
+    it('should schedule retries with exponential backoff', () => {
+      state.addPendingIntent({
+        intentId: '0x123',
+        user: '0x456',
+        sourceToken: '0x789',
+        sourceAmount: '1000',
+        destToken: '0xabc',
+        minDestAmount: '900',
+        maxSolverFee: '10',
+        expiry: Math.floor(Date.now() / 1000) + 3600,
+        blockNumber: 100,
+        transactionHash: '0xdef',
+        status: 'pending',
+        createdAt: Math.floor(Date.now() / 1000),
+      });
+
+      const scheduled = state.scheduleRetry('0x123', 'nonce error', 100, 3);
+      expect(scheduled).toBe(true);
+      const intent = state.getIntent('0x123')!;
+      expect(intent.attempts).toBe(1);
+      expect(intent.status).toBe('pending');
+      expect(intent.nextRetryAt).toBeGreaterThan(Date.now());
+    });
+
+    it('should mark intent as failed after max retries', () => {
+      state.addPendingIntent({
+        intentId: '0x123',
+        user: '0x456',
+        sourceToken: '0x789',
+        sourceAmount: '1000',
+        destToken: '0xabc',
+        minDestAmount: '900',
+        maxSolverFee: '10',
+        expiry: Math.floor(Date.now() / 1000) + 3600,
+        blockNumber: 100,
+        transactionHash: '0xdef',
+        status: 'pending',
+        createdAt: Math.floor(Date.now() / 1000),
+      });
+
+      state.scheduleRetry('0x123', 'error 1', 1, 2);
+      const failed = state.scheduleRetry('0x123', 'error 2', 1, 2);
+      expect(failed).toBe(false);
+      expect(state.getFailedIntents()).toHaveLength(1);
+    });
+  });
+
+  describe('CircuitBreaker', () => {
+    it('should allow calls when closed', async () => {
+      const breaker = new CircuitBreaker('test', { failureThreshold: 2, resetTimeoutMs: 1000, halfOpenMaxCalls: 1 });
+      const result = await breaker.execute(async () => 'ok');
+      expect(result).toBe('ok');
+      expect(breaker.getState()).toBe('CLOSED');
+    });
+
+    it('should open after threshold failures', async () => {
+      const breaker = new CircuitBreaker('test', { failureThreshold: 2, resetTimeoutMs: 1000, halfOpenMaxCalls: 1 });
+      await expect(breaker.execute(async () => { throw new Error('fail'); })).rejects.toThrow('fail');
+      await expect(breaker.execute(async () => { throw new Error('fail'); })).rejects.toThrow('fail');
+      await expect(breaker.execute(async () => 'ok')).rejects.toThrow('OPEN');
+      expect(breaker.getState()).toBe('OPEN');
     });
   });
 });

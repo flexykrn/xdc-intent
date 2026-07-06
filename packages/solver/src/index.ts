@@ -9,6 +9,7 @@ import { FacilitatorClient, PaymentRequirements } from './facilitator-client';
 import { TransactionSubmitter } from './submitter';
 import { StateManager } from './state';
 import { startSolverHttpServer } from './server';
+import { CircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from './circuit-breaker';
 
 export class Solver {
   private logger: Logger;
@@ -22,6 +23,8 @@ export class Solver {
   private state: StateManager;
   private httpServer?: ReturnType<typeof startSolverHttpServer>;
   private isRunning: boolean = false;
+  private retryInterval?: NodeJS.Timeout;
+  private fulfillmentBreaker: CircuitBreaker;
 
   constructor() {
     this.config = loadConfig();
@@ -41,6 +44,7 @@ export class Solver {
     this.evaluator = new IntentEvaluator(this.config, this.logger, this.dexAdapter, this.bridgeAdapter);
     this.facilitator = new FacilitatorClient(this.config, this.logger);
     this.submitter = new TransactionSubmitter(this.config, this.logger);
+    this.fulfillmentBreaker = new CircuitBreaker('fulfillment', DEFAULT_CIRCUIT_BREAKER_CONFIG, this.logger);
   }
 
   async start(): Promise<void> {
@@ -51,7 +55,17 @@ export class Solver {
 
     await this.registerSolver();
 
-    this.httpServer = startSolverHttpServer(this.config.httpPort, this.state, this.submitter, this.logger);
+    this.httpServer = startSolverHttpServer(
+      this.config.httpPort,
+      this.state,
+      this.submitter,
+      this.config,
+      this.fulfillmentBreaker,
+      this.logger,
+      this.config.facilitatorUrl
+    );
+
+    this.startRetryLoop();
 
     await this.watcher.start(async (intent) => this.handleIntent(intent));
 
@@ -73,6 +87,31 @@ export class Solver {
     }
 
     this.logger.info('Solver is running');
+  }
+
+  private startRetryLoop(): void {
+    const interval = Math.max(1000, this.config.retryBaseDelayMs);
+    this.retryInterval = setInterval(async () => {
+      if (!this.isRunning) return;
+      const retryable = this.state.getRetryableIntents(Date.now(), this.config.maxRetries);
+      for (const intent of retryable) {
+        this.logger.info(`Retrying intent ${intent.intentId} (attempt ${(intent.attempts || 0) + 1})`);
+        await this.handleIntent({
+          intentId: intent.intentId,
+          user: intent.user,
+          sourceChainId: intent.sourceChainId ?? 51,
+          sourceToken: intent.sourceToken,
+          sourceAmount: BigInt(intent.sourceAmount),
+          destChainId: intent.destChainId ?? 51,
+          destToken: intent.destToken,
+          minDestAmount: BigInt(intent.minDestAmount),
+          maxSolverFee: BigInt(intent.maxSolverFee),
+          expiry: intent.expiry,
+          blockNumber: intent.blockNumber,
+          transactionHash: intent.transactionHash,
+        });
+      }
+    }, interval);
   }
 
   private async registerSolver(): Promise<void> {
@@ -99,6 +138,9 @@ export class Solver {
   private async handleIntent(intent: IntentEvent): Promise<void> {
     if (!this.isRunning) return;
 
+    const stored = this.state.getIntent(intent.intentId);
+    if (stored?.status === 'completed' || stored?.status === 'failed') return;
+
     this.state.logDecision({
       timestamp: Date.now(),
       intentId: intent.intentId,
@@ -124,34 +166,42 @@ export class Solver {
         createdAt: Math.floor(Date.now() / 1000),
       });
 
-      const evaluation = await this.evaluator.evaluate(intent);
-      if (!evaluation.shouldFulfill) {
-        this.logger.info(`Skipping ${intent.intentId}: ${evaluation.reason}`);
-        this.state.logDecision({
-          timestamp: Date.now(),
+      let outputAmount: bigint;
+      if (stored?.quoted && stored.outputAmount) {
+        outputAmount = BigInt(stored.outputAmount);
+        this.logger.debug(`Using cached quote for ${intent.intentId}: ${outputAmount}`);
+      } else {
+        const evaluation = await this.evaluator.evaluate(intent);
+        if (!evaluation.shouldFulfill) {
+          this.logger.info(`Skipping ${intent.intentId}: ${evaluation.reason}`);
+          this.state.logDecision({
+            timestamp: Date.now(),
+            intentId: intent.intentId,
+            decision: 'skipped',
+            reason: evaluation.reason,
+            metadata: evaluation.estimatedOutput?.toString(),
+          });
+          this.state.markFailed(intent.intentId);
+          return;
+        }
+        outputAmount = evaluation.estimatedOutput!;
+
+        const quoteSignature = await this.signQuote(intent.intentId, outputAmount);
+        const quoteResult = await this.facilitator.submitQuote({
           intentId: intent.intentId,
-          decision: 'skipped',
-          reason: evaluation.reason,
-          metadata: evaluation.estimatedOutput?.toString(),
+          solverAddress: this.submitter.getAddress(),
+          outputAmount: outputAmount.toString(),
+          feeBps: this.config.solverFeeBps,
+          signature: quoteSignature,
         });
-        this.state.markFailed(intent.intentId);
-        return;
-      }
 
-      const outputAmount = evaluation.estimatedOutput!;
-      const quoteSignature = await this.signQuote(intent.intentId, outputAmount);
-      const quoteResult = await this.facilitator.submitQuote({
-        intentId: intent.intentId,
-        solverAddress: this.submitter.getAddress(),
-        outputAmount: outputAmount.toString(),
-        feeBps: this.config.solverFeeBps,
-        signature: quoteSignature,
-      });
+        if (!quoteResult.success) {
+          this.logger.warn(`Quote submission failed for ${intent.intentId}: ${quoteResult.error}`);
+          this.state.markFailed(intent.intentId);
+          return;
+        }
 
-      if (!quoteResult.success) {
-        this.logger.warn(`Quote submission failed for ${intent.intentId}: ${quoteResult.error}`);
-        this.state.markFailed(intent.intentId);
-        return;
+        this.state.setQuoted(intent.intentId, outputAmount);
       }
 
       this.state.markInFlight(intent.intentId);
@@ -159,19 +209,21 @@ export class Solver {
 
       await this.waitForQuoteWin(intent.intentId);
 
-      const paymentRequired = await this.facilitator.requestPayment(intent.intentId);
-      const accepted = paymentRequired.accepts[0];
-      if (!accepted) {
-        throw new Error('No payment requirements available');
-      }
+      const result = await this.fulfillmentBreaker.execute(async () => {
+        const paymentRequired = await this.facilitator.requestPayment(intent.intentId);
+        const accepted = paymentRequired.accepts[0];
+        if (!accepted) {
+          throw new Error('No payment requirements available');
+        }
 
-      const paymentPayload = await this.buildEIP3009Payment(accepted);
-      const settleResult = await this.facilitator.settlePayment(intent.intentId, paymentPayload);
-      if (!settleResult.success || !settleResult.transaction) {
-        throw new Error(settleResult.error || 'Settlement failed');
-      }
+        const paymentPayload = await this.buildEIP3009Payment(accepted);
+        const settleResult = await this.facilitator.settlePayment(intent.intentId, paymentPayload);
+        if (!settleResult.success || !settleResult.transaction) {
+          throw new Error(settleResult.error || 'Settlement failed');
+        }
 
-      const result = await this.submitter.submitFulfillment(intent.intentId, outputAmount, settleResult.transaction);
+        return this.submitter.submitFulfillment(intent.intentId, outputAmount, settleResult.transaction);
+      });
 
       if (result.success) {
         this.state.markCompleted(intent.intentId);
@@ -188,18 +240,57 @@ export class Solver {
           await this.rebalanceCrossChain(intent);
         }
       } else {
+        if (result.error?.includes('already fulfilled') || result.error?.includes('not open')) {
+          this.state.markCompleted(intent.intentId);
+          this.logger.info(`Intent ${intent.intentId} already fulfilled`);
+          return;
+        }
         throw new Error(result.error || 'Fulfillment failed');
       }
     } catch (error: any) {
+      const message = error?.message || 'Unknown error';
+      const retriable = this.isRetriableError(message);
+      if (retriable) {
+        const attempts = stored?.attempts || 0;
+        const delay = Math.min(
+          this.config.retryMaxDelayMs,
+          this.config.retryBaseDelayMs * 2 ** attempts
+        );
+        const scheduled = this.state.scheduleRetry(intent.intentId, message, delay, this.config.maxRetries);
+        if (scheduled) {
+          this.logger.warn(`Scheduled retry for ${intent.intentId} in ${delay}ms: ${message}`);
+          this.state.logDecision({
+            timestamp: Date.now(),
+            intentId: intent.intentId,
+            decision: 'attempted',
+            reason: message,
+          });
+          return;
+        }
+      }
       this.state.markFailed(intent.intentId);
       this.state.logDecision({
         timestamp: Date.now(),
         intentId: intent.intentId,
         decision: 'failed',
-        reason: error.message || 'Unknown error',
+        reason: message,
       });
-      this.logger.error(`Error handling ${intent.intentId}:`, error.message);
+      this.logger.error(`Error handling ${intent.intentId}:`, message);
     }
+  }
+
+  private isRetriableError(message: string): boolean {
+    const lower = message.toLowerCase();
+    return (
+      lower.includes('nonce') ||
+      lower.includes('timeout') ||
+      lower.includes('network') ||
+      lower.includes('econnrefused') ||
+      lower.includes('circuit breaker') ||
+      lower.includes('gas price too high') ||
+      lower.includes('rate limit') ||
+      lower.includes('did not win quote competition')
+    );
   }
 
   private async signQuote(intentId: string, outputAmount: bigint): Promise<string> {
@@ -336,6 +427,7 @@ export class Solver {
 
   stop(): void {
     this.isRunning = false;
+    if (this.retryInterval) clearInterval(this.retryInterval);
     this.watcher.stop();
     this.httpServer?.close();
     this.state.close();
