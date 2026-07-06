@@ -4,7 +4,7 @@ import { useWallet } from "@/components/providers";
 import PageContainer from "@/components/PageContainer";
 import { SectionHeader, Badge, TokenSymbol, EmptyState, LoadingState } from "@/components/ui";
 import { tokenSymbol, chainName, formatTokenAmount } from "@/lib/tokens";
-import { Intent, IntentStatus } from "@xdc-intent/sdk";
+import { useIntents, useBridgeStatus } from "@/lib/hooks";
 import Link from "next/link";
 import {
   Clock,
@@ -19,68 +19,33 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import toast from "react-hot-toast";
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
 
-interface BridgeStatus {
+interface IntentData {
   intentId: string;
+  user: string;
+  sourceToken: string;
+  sourceAmount: string;
+  destToken: string;
+  minDestAmount: string;
+  maxSolverFee: string;
+  expiry: number;
+  status: number;
+  solver: string;
+  fulfilledAmount: string;
   sourceChainId: number;
   destChainId: number;
-  locked: boolean;
-  lockedAmount: string;
-  lockedToken: string;
-  bridgeOutTxHash?: string;
-  bridgeInTxHash?: string;
-  processed: boolean;
 }
+
+const STATUS_OPEN = 0;
+const STATUS_FULFILLED = 1;
+const STATUS_CANCELLED = 2;
 
 export default function MyIntentsPage() {
   const { address, isConnected, sdk } = useWallet();
-  const [intents, setIntents] = useState<Intent[]>([]);
-  const [selected, setSelected] = useState<Intent | null>(null);
-  const [bridgeStatuses, setBridgeStatuses] = useState<Record<string, BridgeStatus>>({});
-  const [loading, setLoading] = useState(true);
+  const { intents, isLoading } = useIntents(address);
+  const [selected, setSelected] = useState<IntentData | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
-
-  const fetchIntents = useCallback(async () => {
-    if (!sdk || !address) return;
-    try {
-      const ids = await sdk.intentRegistry.getUserIntents(address);
-      const details = await Promise.all(
-        ids.map(async (id: string) => {
-          try {
-            return await sdk.getIntent(id);
-          } catch {
-            return null;
-          }
-        })
-      );
-      const resolved = details.filter((d): d is Intent => Boolean(d));
-      setIntents(resolved);
-
-      const statusMap: Record<string, BridgeStatus> = {};
-      await Promise.all(
-        resolved.map(async (intent) => {
-          if (intent.sourceChainId === intent.destChainId) return;
-          try {
-            const res = await fetch(`/api/bridge-status?intentId=${intent.intentId}`);
-            const body = await res.json();
-            if (!body.error) {
-              statusMap[intent.intentId] = body;
-            }
-          } catch {
-            // ignore
-          }
-        })
-      );
-      setBridgeStatuses(statusMap);
-    } catch (e) {
-      const err = e instanceof Error ? e : new Error("Failed to fetch your intents");
-      console.error("Failed to fetch intents", e);
-      toast.error(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [sdk, address]);
 
   async function handleCancel(id: string) {
     if (!sdk) return;
@@ -90,7 +55,6 @@ export default function MyIntentsPage() {
       toast.loading("Cancelling intent...", { id: "cancel" });
       await tx.wait();
       toast.success("Intent cancelled", { id: "cancel" });
-      fetchIntents();
     } catch (e) {
       const err = e instanceof Error ? e : new Error("Failed to cancel");
       toast.error(err.message || "Failed to cancel", { id: "cancel" });
@@ -98,16 +62,6 @@ export default function MyIntentsPage() {
       setCancelling(null);
     }
   }
-
-  useEffect(() => {
-    if (!address || !sdk) {
-      setLoading(false);
-      return;
-    }
-    fetchIntents();
-    const interval = setInterval(fetchIntents, 10000);
-    return () => clearInterval(interval);
-  }, [address, sdk, fetchIntents]);
 
   if (!isConnected) {
     return (
@@ -138,7 +92,7 @@ export default function MyIntentsPage() {
         }
       />
 
-      {loading ? (
+      {isLoading ? (
         <LoadingState message="Loading your intents..." />
       ) : intents.length === 0 ? (
         <EmptyState
@@ -162,7 +116,9 @@ export default function MyIntentsPage() {
                 transition={{ delay: i * 0.05 }}
                 onClick={() => setSelected(intent)}
                 className={`p-5 rounded-2xl surface cursor-pointer transition-all ${
-                  selected?.intentId === intent.intentId ? "border-[var(--accent)] ring-1 ring-[var(--accent)]" : "hover:border-[var(--border-2)]"
+                  selected?.intentId === intent.intentId
+                    ? "border-[var(--accent)] ring-1 ring-[var(--accent)]"
+                    : "hover:border-[var(--border-2)]"
                 }`}
               >
                 <div className="flex items-center justify-between gap-4">
@@ -177,13 +133,13 @@ export default function MyIntentsPage() {
                       <div className="text-[11px] text-[var(--ink-3)] mt-1">
                         {formatTokenAmount(intent.sourceAmount, intent.sourceToken)} → min{" "}
                         {formatTokenAmount(intent.minDestAmount, intent.destToken)} ·{" "}
-                        {chainName(Number(intent.sourceChainId))} → {chainName(Number(intent.destChainId))}
+                        {chainName(intent.sourceChainId)} → {chainName(intent.destChainId)}
                       </div>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-4">
-                    {intent.status === IntentStatus.Open && (
+                    {intent.status === STATUS_OPEN && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -192,7 +148,11 @@ export default function MyIntentsPage() {
                         disabled={cancelling === intent.intentId}
                         className="px-3 py-1.5 rounded-lg text-xs font-semibold text-red-500 border border-red-500/20 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                       >
-                        {cancelling === intent.intentId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Cancel"}
+                        {cancelling === intent.intentId ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          "Cancel"
+                        )}
                       </button>
                     )}
                     <ChevronRight size={18} className="text-[var(--ink-3)]" />
@@ -205,11 +165,7 @@ export default function MyIntentsPage() {
           <div className="lg:col-span-1">
             <AnimatePresence mode="wait">
               {selected ? (
-                <DetailPanel
-                  key={selected.intentId}
-                  intent={selected}
-                  bridgeStatus={bridgeStatuses[selected.intentId]}
-                />
+                <DetailPanel key={selected.intentId} intent={selected} />
               ) : (
                 <motion.div
                   key="empty"
@@ -230,12 +186,15 @@ export default function MyIntentsPage() {
   );
 }
 
-function DetailPanel({ intent, bridgeStatus }: { intent: Intent; bridgeStatus?: BridgeStatus }) {
-  const isCrossChain = Number(intent.sourceChainId) !== Number(intent.destChainId);
+function DetailPanel({ intent }: { intent: IntentData }) {
+  const { status: bridgeStatus } = useBridgeStatus(
+    intent.sourceChainId !== intent.destChainId ? intent.intentId : null
+  );
+  const isCrossChain = intent.sourceChainId !== intent.destChainId;
   const steps = [
     { label: "Submitted", done: true },
-    { label: "Quoted", done: intent.status !== IntentStatus.Open || true },
-    { label: "Fulfilled", done: intent.status === IntentStatus.Fulfilled },
+    { label: "Quoted", done: intent.status !== STATUS_OPEN || true },
+    { label: "Fulfilled", done: intent.status === STATUS_FULFILLED },
     ...(isCrossChain ? [{ label: "Bridged", done: !!bridgeStatus?.locked }] : []),
   ];
 
@@ -252,7 +211,10 @@ function DetailPanel({ intent, bridgeStatus }: { intent: Intent; bridgeStatus?: 
       </div>
 
       <div className="space-y-4 mb-6">
-        <DetailRow label="Intent ID" value={<span className="font-mono text-[11px]">{intent.intentId.slice(0, 24)}...</span>} />
+        <DetailRow
+          label="Intent ID"
+          value={<span className="font-mono text-[11px]">{intent.intentId.slice(0, 24)}...</span>}
+        />
         <DetailRow
           label="You send"
           value={`${formatTokenAmount(intent.sourceAmount, intent.sourceToken)} ${tokenSymbol(intent.sourceToken)}`}
@@ -261,8 +223,11 @@ function DetailPanel({ intent, bridgeStatus }: { intent: Intent; bridgeStatus?: 
           label="Minimum receive"
           value={`${formatTokenAmount(intent.minDestAmount, intent.destToken)} ${tokenSymbol(intent.destToken)}`}
         />
-        <DetailRow label="Route" value={`${chainName(Number(intent.sourceChainId))} → ${chainName(Number(intent.destChainId))}`} />
-        {intent.status === IntentStatus.Fulfilled && (
+        <DetailRow
+          label="Route"
+          value={`${chainName(intent.sourceChainId)} → ${chainName(intent.destChainId)}`}
+        />
+        {intent.status === STATUS_FULFILLED && (
           <>
             <DetailRow
               label="Filled amount"
@@ -270,14 +235,16 @@ function DetailPanel({ intent, bridgeStatus }: { intent: Intent; bridgeStatus?: 
             />
             <DetailRow
               label="Solver"
-              value={<a
-                href={`https://testnet.xdcscan.com/address/${intent.solver}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-mono text-[11px] text-[var(--accent)] hover:underline"
-              >
-                {intent.solver.slice(0, 14)}...
-              </a>}
+              value={
+                <a
+                  href={`https://testnet.xdcscan.com/address/${intent.solver}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-[11px] text-[var(--accent)] hover:underline"
+                >
+                  {intent.solver.slice(0, 14)}...
+                </a>
+              }
             />
           </>
         )}
@@ -299,7 +266,9 @@ function DetailPanel({ intent, bridgeStatus }: { intent: Intent; bridgeStatus?: 
                 {i < steps.length - 1 && <div className="w-px flex-1 bg-[var(--border)] my-1" />}
               </div>
               <div className="pb-5">
-                <div className={`text-sm font-medium ${s.done ? "text-[var(--ink)]" : "text-[var(--ink-3)]"}`}>{s.label}</div>
+                <div className={`text-sm font-medium ${s.done ? "text-[var(--ink)]" : "text-[var(--ink-3)]"}`}>
+                  {s.label}
+                </div>
               </div>
             </div>
           ))}
@@ -346,21 +315,21 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
   );
 }
 
-function StatusBadge({ status }: { status: IntentStatus }) {
+function StatusBadge({ status }: { status: number }) {
   switch (status) {
-    case IntentStatus.Open:
+    case STATUS_OPEN:
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-yellow-500/10 text-yellow-600 rounded-full text-[11px] font-semibold border border-yellow-500/20">
           <Clock className="w-3 h-3" /> Open
         </span>
       );
-    case IntentStatus.Fulfilled:
+    case STATUS_FULFILLED:
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 text-emerald-600 rounded-full text-[11px] font-semibold border border-emerald-500/20">
           <CheckCircle className="w-3 h-3" /> Filled
         </span>
       );
-    case IntentStatus.Cancelled:
+    case STATUS_CANCELLED:
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-500/10 text-gray-500 rounded-full text-[11px] font-semibold border border-gray-500/20">
           <XCircle className="w-3 h-3" /> Cancelled

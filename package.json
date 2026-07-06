@@ -14,12 +14,14 @@
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean",
     "dev": "turbo run dev --parallel",
+    "demo": "concurrently \"npm run dev -w @xdc-intent/middleware\" \"npm run dev -w @xdc-intent/solver\" \"npm run dev -w @xdc-intent/solver-b\" \"npm run dev -w frontend\" --names middleware,solver-a,solver-b,frontend --prefix-colors auto",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.1",
+    "concurrently": "^10.0.3",
     "handlebars": "^4.7.9",
     "hardhat": "^2.19.0",
     "prettier": "^3.2.5",

@@ -22,19 +22,21 @@ export async function GET(request: Request) {
       ids.map(async (id) => {
         try {
           const i = await registry.getIntent(id);
-          return {
-            intentId: i.intentId,
-            user: i.user,
-            sourceToken: i.sourceToken,
-            sourceAmount: i.sourceAmount.toString(),
-            destToken: i.destToken,
-            minDestAmount: i.minDestAmount.toString(),
-            maxSolverFee: i.maxSolverFee.toString(),
-            expiry: Number(i.expiry),
-            status: Number(i.status),
-            solver: i.solver,
-            fulfilledAmount: i.fulfilledAmount.toString(),
-          };
+            return {
+              intentId: i.intentId,
+              user: i.user,
+              sourceToken: i.sourceToken,
+              sourceAmount: i.sourceAmount.toString(),
+              destToken: i.destToken,
+              minDestAmount: i.minDestAmount.toString(),
+              maxSolverFee: i.maxSolverFee.toString(),
+              expiry: Number(i.expiry),
+              status: Number(i.status),
+              solver: i.solver,
+              fulfilledAmount: i.fulfilledAmount.toString(),
+              sourceChainId: Number(i.sourceChainId),
+              destChainId: Number(i.destChainId),
+            };
         } catch {
           return null;
         }

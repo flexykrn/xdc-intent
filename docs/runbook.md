@@ -5,14 +5,18 @@ This runbook covers operating the XDC Intent Framework on XDC Apothem testnet.
 
 ## Deployed Contracts (Apothem Testnet)
 
-| Contract | Address | Sourcify |
-|---|---|---|
-| Escrow | `0xF5BDAA17e4cEA2bD6c19dea300Ff855db1E22288` | https://repo.sourcify.dev/contracts/full_match/51/0xF5BDAA17e4cEA2bD6c19dea300Ff855db1E22288/ |
-| PaymentVerifier | `0x31dFf11EC285ef4167133218bDE2DE8CCAeb36D6` | https://repo.sourcify.dev/contracts/full_match/51/0x31dFf11EC285ef4167133218bDE2DE8CCAeb36D6/ |
-| IntentRegistry | `0x53d5bDe77bbeC1D0bE9dd0826b66deF2Af63dAA4` | https://repo.sourcify.dev/contracts/full_match/51/0x53d5bDe77bbeC1D0bE9dd0826b66deF2Af63dAA4/ |
-| SolverRegistry | `0xC4db3B088781431ea29201BaF931FD4B731F3B91` | — |
-| MockUSDC | `0x86530A99784D188e8343e119140114d9e5fD0546` | — |
-| MockXDC | `0xfe4E746cA450C46Fe6Ede5EAc184A7F2082B2312` | — |
+| Contract | Address |
+|---|---|
+| IntentRegistry | `0x441f5e07E6FC807E73454B4318ba487e05e65625` |
+| Escrow | `0x5c6fb5D7E81e11C303e5cE00fBE7AE748a47690d` |
+| PaymentVerifier | `0x6Ce223bD961217917aa16654E77A6A440f35A70A` |
+| SolverRegistry | `0x4F87a92E3950ec53AFC1776F14Af33c6E9aab360` |
+| MockBridge | `0x39bf6DDeC0ba4b72C79d623A133ED78a40D4DFfB` |
+| MockUSDC | `0x86530A99784D188e8343e119140114d9e5fD0546` |
+| MockXDC | `0xfe4E746cA450C46Fe6Ede5EAc184A7F2082B2312` |
+| SimpleDEXFactory | `0x342d081a46F0E26602c6547718a21b37825E9782` |
+| SimpleDEXRouter | `0xc8B08Ac4CDa23A3737Fe7D0C4BD94d58F0fEfa0c` |
+| SimpleDEX Pair | `0xE73bAAd441069fAE0181cd1A94f7DCa4f9A18161` |
 
 Explorer: https://testnet.xdcscan.com
 
@@ -26,13 +30,15 @@ Explorer: https://testnet.xdcscan.com
    - `packages/contracts/.env`
    - `packages/middleware/.env`
    - `packages/solver/.env`
+   - `packages/solver-b/.env`
 
 ## Quick Start
 
-### One-command demo (PowerShell)
-```powershell
-.\scripts\demo.ps1
+### One-command demo
+```bash
+npm run demo
 ```
+This starts middleware, Solver A, Solver B, and the frontend in parallel.
 
 ### Manual startup
 
@@ -49,17 +55,25 @@ npm start -w @xdc-intent/solver
 npm run build -w @xdc-intent/solver-b
 npm start -w @xdc-intent/solver-b
 
-# Terminal 4 — Two-solver quote competition E2E
-cd packages/contracts
-npx hardhat run scripts/e2e-quote-competition.ts --network apothem
-```
-
-### Frontend
-```bash
-npm run build -w frontend
+# Terminal 4 — Frontend
 npm run dev -w frontend
 ```
-Open http://localhost:3000/market to browse open intents and competing quotes, or http://localhost:3000/agent-demo for the x402 agent payment flow.
+
+## Frontend Pages
+
+| Page | URL | Purpose |
+|---|---|---|
+| Dashboard | http://localhost:3000/dashboard | Protocol stats, recent intents, testnet faucet, quick actions |
+| Create Intent | http://localhost:3000/create | Step-by-step swap wizard with live DEX estimate |
+| Market | http://localhost:3000/market | Browse open intents and competing solver quotes |
+| My Intents | http://localhost:3000/my-intents | Track your intents, detail drawer, status timeline, bridge status |
+| AI Agent Demo | http://localhost:3000/agent-demo | Chat interface that parses swaps and watches fulfillment |
+
+Data on Dashboard, Market, and My Intents refreshes automatically every 3–10 seconds via SWR polling.
+
+## Testnet Faucet
+
+The Dashboard includes an in-app faucet. Click **Mint 1000** next to MUSDC or MXDC to mint free test tokens directly from the `MockERC20` contracts. No external faucet is required.
 
 ## Health Checks
 
@@ -70,55 +84,55 @@ Open http://localhost:3000/market to browse open intents and competing quotes, o
 | Solver A metrics | `http://localhost:3001/metrics` |
 | Solver B | `http://localhost:3003/health` |
 | Solver B metrics | `http://localhost:3003/metrics` |
-| Frontend market | `http://localhost:3000/market` |
 | Frontend API stats | `http://localhost:3000/api/stats` |
 
 ## Verification Commands
 
 ```bash
+# Run everything
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+
 # Contract tests
 cd packages/contracts
 npx hardhat test
 
-# Static analysis
-npm run slither
-
-# Package builds
-npm run build -w @xdc-intent/sdk
-npm run build -w @xdc-intent/middleware
-npm run build -w @xdc-intent/solver
-npm run build -w @xdc-intent/solver-b
-npm run build -w frontend
-
 # Two-solver quote competition E2E
 cd packages/contracts
 npx hardhat run scripts/e2e-quote-competition.ts --network apothem
+
+# Cross-chain E2E
+cd packages/contracts
+npx hardhat run scripts/e2e-cross-chain.ts --network apothem
 ```
 
 ## Demo Transaction History
 
 | Run | Intent ID | Winner | Fulfilled Amount | Payment Tx |
 |---|---|---|---|---|
-| Two-solver competition (2026-07-04) | `0xb7a184200e91345077919a060e3011c7eb2ddca6f58dd7c6e5ac11bd5f13d49a` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `2197.8` MXDC | `0x37feb75ac38a91b23e7bf8bb6129dab36e322922ace340e604a7f76056d291b2` |
-| Two-solver competition (2026-07-06) | `0xdd6cb6e0a899912de872ca3635f5402317bfc0a546cc49746287471257f2ec5b` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `2197.8` MXDC | `0x9f53b8608df8869019e80d9bed576de7f4a1840fc2c3f81b3dcf0dd110ca8a2b` |
+| Two-solver competition (2026-07-06) | `0x97e290cb...f1525a7d` | `0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe` | `1974.32` MXDC | — |
+| Cross-chain (2026-07-06) | `0xe921dac5...4133a219` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `198.21` MXDC | — |
 | AI agent demo (2026-07-06) | `0xbe165976f566fc509aae1a382347d218edd2c10e5623869b3a40828e15af5939` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `219.78` MXDC | `0x9465e9b4228f71361f3051c4d7096212614dfa6c8169a6f2adc8e0496a3423e5` |
 
 ## AI Agent Demo
 
-The agent demo at `/agent-demo` lets a user type a natural-language swap request. An LLM (Gemini) parses it into intent parameters, or a local regex fallback is used when no API key is configured.
+The agent demo at `/agent-demo` lets a user type a natural-language swap request. An LLM (Groq `llama-3.1-8b-instant`, with Gemini fallback) parses it into intent parameters, or a local regex fallback is used when no API key is configured.
 
 ### Setup
 
-1. Add a Gemini API key to `packages/frontend/.env.local`:
+1. Add API keys to `packages/frontend/.env.local`:
    ```bash
+   GROQ_API_KEY=your_key_here
    GEMINI_API_KEY=your_key_here
    ```
-2. Without a key, simple prompts like "swap 10 USDC for XDC" are parsed locally.
-3. Start the frontend dev server after middleware and solvers are running:
+2. Without keys, simple prompts like "swap 10 USDC for XDC" are parsed locally.
+3. Start the demo stack:
    ```bash
-   npm run dev -w frontend
+   npm run demo
    ```
-4. Open http://localhost:3000/agent-demo, connect a wallet funded with MockUSDC and Apothem XDC, and run the flow.
+4. Open http://localhost:3000/agent-demo, connect a wallet, and run the flow.
 
 ### Flow
 
@@ -166,9 +180,9 @@ Get-Process -Name node | ForEach-Object { Stop-Process -Id $_.Id -Force }
 
 ## Restart Procedure
 
-1. Stop middleware, solvers, and frontend (Ctrl+C or kill node processes).
+1. Stop the demo (`Ctrl+C` once if using `npm run demo`).
 2. Solver state is persisted to `packages/solver/data/solver-state.json` and `packages/solver-b/data/solver-state.json`.
-3. Start middleware, then solvers, then frontend dev server.
+3. Start again with `npm run demo`.
 4. Solvers will resume from the last processed block and re-evaluate any pending intents.
 
 ## Security Notes

@@ -2,95 +2,76 @@
 
 import { useWallet } from "@/components/providers";
 import PageContainer from "@/components/PageContainer";
-import { StatCard, SectionHeader, Badge, TokenSymbol } from "@/components/ui";
-import { formatTokenAmount, tokenSymbol, chainName } from "@/lib/tokens";
-import { ethers, EventLog } from "ethers";
+import { StatCard, SectionHeader, Badge, TokenSymbol, LoadingState } from "@/components/ui";
+import { formatTokenAmount, tokenSymbol, chainName, TOKENS, parseTokenAmount } from "@/lib/tokens";
+import { useIntents, useStats } from "@/lib/hooks";
+import { ethers } from "ethers";
 import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { ArrowRight, Plus, LayoutGrid, Activity, Wallet, AlertCircle } from "lucide-react";
-import { CONTRACTS, INTENT_REGISTRY_ABI, RPC_URL } from "@/lib/contracts";
-
-interface IntentData {
-  intentId: string;
-  user: string;
-  sourceToken: string;
-  sourceAmount: string;
-  destToken: string;
-  minDestAmount: string;
-  maxSolverFee: string;
-  expiry: number;
-  status: number;
-  solver: string;
-  fulfilledAmount: string;
-  sourceChainId: number;
-  destChainId: number;
-}
+import toast from "react-hot-toast";
+import { ArrowRight, Plus, LayoutGrid, Activity, Wallet, AlertCircle, Droplets } from "lucide-react";
 
 export default function DashboardPage() {
-  const { isConnected, address } = useWallet();
-  const [stats, setStats] = useState({ total: 0, fulfilled: 0, open: 0, myIntents: 0 });
-  const [recent, setRecent] = useState<IntentData[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { isConnected, address, signer } = useWallet();
+  const { intents, isLoading: intentsLoading } = useIntents();
+  const { stats, isLoading: statsLoading } = useStats();
+  const [balances, setBalances] = useState<Record<string, string>>({});
+  const [minting, setMinting] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const open = intents.filter((d) => d.status === 0).length;
+  const myIntents = address ? intents.filter((d) => d.user.toLowerCase() === address.toLowerCase()).length : 0;
+  const recent = intents.slice(-5).reverse();
+
+  const fetchBalances = useCallback(async () => {
+    if (!signer || !address) return;
     try {
-      const provider = new ethers.JsonRpcProvider(RPC_URL);
-      const registry = new ethers.Contract(CONTRACTS.intentRegistry, INTENT_REGISTRY_ABI, provider);
-      const total = await registry.getTotalIntents().catch(() => BigInt(0));
-      const fulfilled = await registry.totalIntentsFulfilled().catch(() => BigInt(0));
-
-      const filter = registry.filters.IntentSubmitted();
-      const events = await registry.queryFilter(filter, -2000);
-      const ids = Array.from(
-        new Set(
-          events
-            .filter((e): e is EventLog => e instanceof EventLog && e.args !== undefined)
-            .map((e) => e.args.intentId as string)
-        )
-      );
-      const all = await Promise.all(
-        ids.map(async (id) => {
-          try {
-            const d = await registry.getIntent(id);
-            return {
-              intentId: d.intentId,
-              user: d.user,
-              sourceToken: d.sourceToken,
-              sourceAmount: d.sourceAmount.toString(),
-              destToken: d.destToken,
-              minDestAmount: d.minDestAmount.toString(),
-              maxSolverFee: d.maxSolverFee.toString(),
-              expiry: Number(d.expiry),
-              status: Number(d.status),
-              solver: d.solver,
-              fulfilledAmount: d.fulfilledAmount.toString(),
-              sourceChainId: Number(d.sourceChainId),
-              destChainId: Number(d.destChainId),
-            };
-          } catch {
-            return null;
-          }
+      const provider = signer.provider;
+      if (!provider) return;
+      const newBalances: Record<string, string> = {};
+      await Promise.all(
+        TOKENS.filter((t) => t.address !== ethers.ZeroAddress).map(async (t) => {
+          const token = new ethers.Contract(
+            t.address,
+            ["function balanceOf(address) view returns (uint256)", "function decimals() view returns (uint8)"],
+            provider
+          );
+          const raw = await token.balanceOf(address);
+          newBalances[t.address] = formatTokenAmount(raw.toString(), t.address);
         })
       );
-      const resolved = all.filter((d): d is IntentData => Boolean(d));
-      const open = resolved.filter((d) => d.status === 0).length;
-      const myIntents = address ? resolved.filter((d) => d.user.toLowerCase() === address.toLowerCase()).length : 0;
-
-      setStats({ total: Number(total), fulfilled: Number(fulfilled), open, myIntents });
-      setRecent(resolved.slice(-5).reverse());
+      setBalances(newBalances);
     } catch (e) {
-      console.error("Dashboard fetch failed", e);
-    } finally {
-      setLoading(false);
+      console.error("Failed to fetch balances", e);
     }
-  }, [address]);
+  }, [signer, address]);
+
+  const handleMint = async (tokenInfo: (typeof TOKENS)[0]) => {
+    if (!signer || !address) return;
+    setMinting(tokenInfo.address);
+    const toastId = toast.loading(`Minting ${tokenInfo.symbol}...`);
+    try {
+      const token = new ethers.Contract(tokenInfo.address, ["function mint(address,uint256)"], signer);
+      const amount = parseTokenAmount("1000", tokenInfo.address);
+      const tx = await token.mint(address, amount);
+      await tx.wait();
+      toast.success(`Minted 1000 ${tokenInfo.symbol}`, { id: toastId });
+      await fetchBalances();
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error("Mint failed");
+      toast.error(err.message || "Mint failed", { id: toastId });
+    } finally {
+      setMinting(null);
+    }
+  };
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 10000);
+    fetchBalances();
+    const interval = setInterval(fetchBalances, 10000);
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [fetchBalances]);
+
+  const loading = intentsLoading || statsLoading;
 
   return (
     <PageContainer>
@@ -120,10 +101,10 @@ export default function DashboardPage() {
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard label="Total Intents" value={stats.total.toLocaleString()} />
-        <StatCard label="Fulfilled" value={stats.fulfilled.toLocaleString()} />
-        <StatCard label="Open" value={stats.open.toLocaleString()} />
-        <StatCard label="My Intents" value={isConnected ? stats.myIntents : "—"} />
+        <StatCard label="Total Intents" value={stats?.total.toLocaleString() ?? (loading ? "—" : "0")} />
+        <StatCard label="Fulfilled" value={stats?.fulfilled.toLocaleString() ?? (loading ? "—" : "0")} />
+        <StatCard label="Open" value={loading ? "—" : open} />
+        <StatCard label="My Intents" value={isConnected ? myIntents : "—"} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -139,7 +120,7 @@ export default function DashboardPage() {
           </div>
 
           {loading ? (
-            <div className="py-12 text-center text-[var(--ink-3)]">Loading recent intents...</div>
+            <LoadingState message="Loading recent intents..." />
           ) : recent.length === 0 ? (
             <div className="py-12 text-center text-[var(--ink-3)]">No intents yet.</div>
           ) : (
@@ -161,8 +142,9 @@ export default function DashboardPage() {
                         <TokenSymbol symbol={tokenSymbol(intent.destToken)} />
                       </div>
                       <div className="text-[11px] text-[var(--ink-3)] mt-1">
-                        {formatTokenAmount(intent.sourceAmount, intent.sourceToken)} → min {formatTokenAmount(intent.minDestAmount, intent.destToken)} ·{" "}
-                        {chainName(intent.sourceChainId)} → {chainName(intent.destChainId)}
+                        {formatTokenAmount(intent.sourceAmount, intent.sourceToken)} → min{" "}
+                        {formatTokenAmount(intent.minDestAmount, intent.destToken)} · {chainName(intent.sourceChainId)} →{" "}
+                        {chainName(intent.destChainId)}
                       </div>
                     </div>
                   </div>
@@ -188,6 +170,34 @@ export default function DashboardPage() {
               <QuickAction href="/agent-demo" icon=<LayoutGrid size={16} /> label="AI Agent Demo" />
             </div>
           </div>
+
+          <div className="rounded-2xl surface p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Droplets size={18} className="text-[var(--accent)]" />
+              <span className="font-semibold text-[var(--ink)]">Testnet Faucet</span>
+            </div>
+            <p className="text-xs text-[var(--ink-3)] mb-4">Mint free MUSDC and MXDC to try the protocol.</p>
+            <div className="space-y-3">
+              {TOKENS.filter((t) => t.address !== ethers.ZeroAddress).map((t) => (
+                <div
+                  key={t.address}
+                  className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-3)] border border-[var(--border)]"
+                >
+                  <div>
+                    <div className="text-sm font-medium text-[var(--ink)]">{t.symbol}</div>
+                    <div className="text-[11px] text-[var(--ink-3)]">Balance: {balances[t.address] ?? "—"}</div>
+                  </div>
+                  <button
+                    onClick={() => handleMint(t)}
+                    disabled={!isConnected || minting === t.address}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold btn-primary disabled:opacity-50"
+                  >
+                    {minting === t.address ? "Minting..." : "Mint 1000"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </PageContainer>
@@ -205,7 +215,9 @@ function QuickAction({ href, icon, label }: { href: string; icon: React.ReactNod
       href={href}
       className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-3)] hover:bg-[var(--bg-2)] border border-[var(--border)] hover:border-[var(--border-2)] transition-colors text-[var(--ink)] text-sm font-medium"
     >
-      <span className="flex items-center gap-2">{icon} {label}</span>
+      <span className="flex items-center gap-2">
+        {icon} {label}
+      </span>
       <ArrowRight size={14} className="text-[var(--ink-3)]" />
     </Link>
   );

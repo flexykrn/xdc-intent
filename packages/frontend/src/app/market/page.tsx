@@ -4,20 +4,11 @@ import { useWallet } from "@/components/providers";
 import PageContainer from "@/components/PageContainer";
 import { SectionHeader, Badge, TokenSymbol, EmptyState, LoadingState } from "@/components/ui";
 import { tokenSymbol, chainName, formatTokenAmount } from "@/lib/tokens";
-import { EventLog } from "ethers";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useIntents, useQuotes } from "@/lib/hooks";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { ArrowRight, Activity, Search, Wallet, TrendingUp } from "lucide-react";
-
-interface Quote {
-  intentId: string;
-  solverAddress: string;
-  outputAmount: string;
-  feeBps: number;
-  signature: string;
-  createdAt: number;
-}
 
 interface IntentData {
   intentId: string;
@@ -36,77 +27,10 @@ interface IntentData {
 }
 
 export default function MarketPage() {
-  const { isConnected, sdk } = useWallet();
-  const [intents, setIntents] = useState<IntentData[]>([]);
-  const [quotes, setQuotes] = useState<Record<string, Quote[]>>({});
-  const [loading, setLoading] = useState(true);
+  const { isConnected } = useWallet();
+  const { intents, isLoading } = useIntents();
   const [filter, setFilter] = useState<"all" | "open" | "filled" | "cross-chain">("all");
   const [search, setSearch] = useState("");
-
-  const fetchIntents = useCallback(async () => {
-    if (!sdk) return;
-    try {
-      const filterSubmitted = sdk.intentRegistry.filters.IntentSubmitted();
-      const events = await sdk.intentRegistry.queryFilter(filterSubmitted, -2000);
-      const ids = Array.from(
-        new Set(
-          events
-            .filter((e): e is EventLog => e instanceof EventLog && e.args !== undefined)
-            .map((e) => e.args.intentId as string)
-        )
-      );
-      const details = await Promise.all(
-        ids.map(async (id) => {
-          try {
-            const d = await sdk.getIntent(id);
-            return {
-              intentId: d.intentId,
-              user: d.user,
-              sourceToken: d.sourceToken,
-              sourceAmount: d.sourceAmount.toString(),
-              destToken: d.destToken,
-              minDestAmount: d.minDestAmount.toString(),
-              maxSolverFee: d.maxSolverFee.toString(),
-              expiry: d.expiry,
-              status: d.status,
-              solver: d.solver,
-              fulfilledAmount: d.fulfilledAmount.toString(),
-              sourceChainId: d.sourceChainId,
-              destChainId: d.destChainId,
-            };
-          } catch {
-            return null;
-          }
-        })
-      );
-      const resolved = details.filter((d): d is IntentData => Boolean(d));
-      setIntents(resolved);
-
-      const quoteMap: Record<string, Quote[]> = {};
-      await Promise.all(
-        resolved.map(async (intent) => {
-          try {
-            const res = await fetch(`/api/quotes?intentId=${intent.intentId}`);
-            const body = await res.json();
-            quoteMap[intent.intentId] = body.quotes || [];
-          } catch {
-            quoteMap[intent.intentId] = [];
-          }
-        })
-      );
-      setQuotes(quoteMap);
-    } catch (e) {
-      console.error("Failed to fetch market", e);
-    } finally {
-      setLoading(false);
-    }
-  }, [sdk]);
-
-  useEffect(() => {
-    fetchIntents();
-    const interval = setInterval(fetchIntents, 5000);
-    return () => clearInterval(interval);
-  }, [fetchIntents]);
 
   const filtered = useMemo(() => {
     return intents.filter((intent) => {
@@ -182,7 +106,7 @@ export default function MarketPage() {
         </div>
       </div>
 
-      {loading ? (
+      {isLoading ? (
         <LoadingState message="Loading market..." />
       ) : filtered.length === 0 ? (
         <EmptyState
@@ -198,12 +122,7 @@ export default function MarketPage() {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {filtered.map((intent, i) => (
-            <IntentCard
-              key={intent.intentId}
-              intent={intent}
-              quotes={quotes[intent.intentId] || []}
-              index={i}
-            />
+            <IntentCard key={intent.intentId} intent={intent} index={i} />
           ))}
         </div>
       )}
@@ -211,8 +130,11 @@ export default function MarketPage() {
   );
 }
 
-function IntentCard({ intent, quotes, index }: { intent: IntentData; quotes: Quote[]; index: number }) {
-  const best = quotes.reduce((max, q) => (BigInt(q.outputAmount) > BigInt(max.outputAmount) ? q : max), quotes[0]);
+function IntentCard({ intent, index }: { intent: IntentData; index: number }) {
+  const { quotes } = useQuotes(intent.intentId);
+  const best = quotes.length > 0
+    ? quotes.reduce((max, q) => (BigInt(q.outputAmount) > BigInt(max.outputAmount) ? q : max), quotes[0])
+    : null;
   const isCrossChain = intent.sourceChainId !== intent.destChainId;
 
   return (
@@ -233,7 +155,9 @@ function IntentCard({ intent, quotes, index }: { intent: IntentData; quotes: Quo
           <div className="font-mono text-[11px] text-[var(--ink-3)]">{intent.intentId.slice(0, 18)}...</div>
         </div>
         <div className="text-right">
-          <div className="text-xs text-[var(--ink-3)]">{chainName(intent.sourceChainId)} → {chainName(intent.destChainId)}</div>
+          <div className="text-xs text-[var(--ink-3)]">
+            {chainName(intent.sourceChainId)} → {chainName(intent.destChainId)}
+          </div>
           <div className="text-[11px] text-[var(--ink-4)]">{new Date(intent.expiry * 1000).toLocaleDateString()}</div>
         </div>
       </div>
@@ -256,7 +180,9 @@ function IntentCard({ intent, quotes, index }: { intent: IntentData; quotes: Quo
         {best ? (
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-xs text-[var(--ink-3)] mb-1">Best quote ({quotes.length} solver{quotes.length !== 1 ? "s" : ""})</div>
+              <div className="text-xs text-[var(--ink-3)] mb-1">
+                Best quote ({quotes.length} solver{quotes.length !== 1 ? "s" : ""})
+              </div>
               <div className="text-emerald-600 font-semibold text-lg">
                 {formatTokenAmount(best.outputAmount, intent.destToken)} {tokenSymbol(intent.destToken)}
               </div>
