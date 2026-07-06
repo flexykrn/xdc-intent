@@ -100,6 +100,31 @@ npx hardhat run scripts/e2e-quote-competition.ts --network apothem
 | Run | Intent ID | Winner | Fulfilled Amount | Payment Tx |
 |---|---|---|---|---|
 | Two-solver competition (2026-07-04) | `0xb7a184200e91345077919a060e3011c7eb2ddca6f58dd7c6e5ac11bd5f13d49a` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `2197.8` MXDC | `0x37feb75ac38a91b23e7bf8bb6129dab36e322922ace340e604a7f76056d291b2` |
+| Two-solver competition (2026-07-06) | `0xdd6cb6e0a899912de872ca3635f5402317bfc0a546cc49746287471257f2ec5b` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `2197.8` MXDC | `0x9f53b8608df8869019e80d9bed576de7f4a1840fc2c3f81b3dcf0dd110ca8a2b` |
+
+## AI Agent Demo
+
+The agent demo at `/agent-demo` lets a user type a natural-language swap request. An LLM (Gemini) parses it into intent parameters, or a local regex fallback is used when no API key is configured.
+
+### Setup
+
+1. Add a Gemini API key to `packages/frontend/.env.local`:
+   ```bash
+   GEMINI_API_KEY=your_key_here
+   ```
+2. Without a key, simple prompts like "swap 10 USDC for XDC" are parsed locally.
+3. Start the frontend dev server after middleware and solvers are running:
+   ```bash
+   npm run dev -w frontend
+   ```
+4. Open http://localhost:3000/agent-demo, connect a wallet funded with MockUSDC and Apothem XDC, and run the flow.
+
+### Flow
+
+1. **Describe swap** — LLM/local parser returns `inputToken`, `inputAmount`, `outputToken`, `minDestAmount`, `maxSolverFee`.
+2. **Create intent** — Frontend approves the Escrow to spend MockUSDC and calls `IntentRegistry.submitIntent`.
+3. **Quote competition** — Solvers A and B submit off-chain quotes to the middleware.
+4. **Wait for fulfillment** — The best quote wins, the solver pays the middleware via x402 EIP-3009, and `IntentRegistry.fulfillIntent` is called on-chain.
 
 ## Troubleshooting
 
