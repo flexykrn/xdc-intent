@@ -31,6 +31,7 @@ describe('Solver Components', () => {
     solverName: 'TestSolver',
     solverFeeBps: 30,
     minDestAmount: 0.95,
+    minSourceAmount: ethers.parseEther('0.001'),
   };
 
   const mockLogger = winston.createLogger({

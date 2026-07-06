@@ -27,6 +27,7 @@ export const SolverConfigSchema = z.object({
   solverName: z.string().min(1),
   solverFeeBps: z.number().int().min(0).max(10000),
   minDestAmount: z.number().min(0).max(1),
+  minSourceAmount: z.bigint().min(0n),
 });
 
 export type SolverConfig = z.infer<typeof SolverConfigSchema>;
@@ -55,6 +56,7 @@ export function loadConfig(): SolverConfig {
     solverName: process.env.SOLVER_NAME || 'XDC-Solver',
     solverFeeBps: parseInt(process.env.SOLVER_FEE_BPS || '30'),
     minDestAmount: parseFloat(process.env.MIN_DEST_AMOUNT || '0.95'),
+    minSourceAmount: process.env.MIN_SOURCE_AMOUNT ? BigInt(process.env.MIN_SOURCE_AMOUNT) : 1000n,
   };
 
   const result = SolverConfigSchema.safeParse(raw);

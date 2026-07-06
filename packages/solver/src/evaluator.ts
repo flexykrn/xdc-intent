@@ -27,7 +27,7 @@ export class IntentEvaluator {
       return { shouldFulfill: false, reason: 'Expiry too soon' };
     }
 
-    if (intent.sourceAmount < ethers.parseEther('0.001')) {
+    if (intent.sourceAmount < this.config.minSourceAmount) {
       return { shouldFulfill: false, reason: 'Amount too small' };
     }
 

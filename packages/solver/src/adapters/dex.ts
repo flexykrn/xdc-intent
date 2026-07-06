@@ -70,6 +70,50 @@ export class XSwapV3Adapter implements DEXAdapter {
   }
 }
 
+// SimpleDEX (Uniswap V2-style) adapter using the in-repo SimpleDEXRouter.
+export class SimpleDEXAdapter implements DEXAdapter {
+  private router: ethers.Contract;
+
+  constructor(
+    routerAddress: string,
+    private provider: ethers.Provider
+  ) {
+    const routerAbi = [
+      'function factory() external view returns (address)',
+      'function getAmountsOut(uint amountIn, address[] calldata path) external view returns (uint[] memory amounts)',
+      'function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)',
+    ];
+    this.router = new ethers.Contract(routerAddress, routerAbi, provider);
+  }
+
+  async getQuote(inputToken: string, outputToken: string, inputAmount: bigint): Promise<SwapQuote> {
+    const amounts = await this.router.getAmountsOut(inputAmount, [inputToken, outputToken]);
+    const amountOut = amounts[amounts.length - 1];
+    const exchangeRate = Number(amountOut) / Number(inputAmount);
+    return {
+      inputToken,
+      outputToken,
+      inputAmount,
+      outputAmount: amountOut,
+      exchangeRate,
+      gasEstimate: 180000n,
+    };
+  }
+
+  async executeSwap(quote: SwapQuote, signer: ethers.Signer): Promise<ethers.TransactionResponse> {
+    const routerWithSigner = this.router.connect(signer);
+    const deadline = Math.floor(Date.now() / 1000) + 300;
+    const minOutput = (quote.outputAmount * 95n) / 100n;
+    return (routerWithSigner as any).swapExactTokensForTokens(
+      quote.inputAmount,
+      minOutput,
+      [quote.inputToken, quote.outputToken],
+      await signer.getAddress(),
+      deadline
+    );
+  }
+}
+
 // Mock adapter for local/testing use.
 export class MockDEXAdapter implements DEXAdapter {
   private rates = new Map<string, number>([

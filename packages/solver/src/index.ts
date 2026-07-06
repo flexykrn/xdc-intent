@@ -3,7 +3,7 @@ import { Logger, createLogger } from './logger';
 import { SolverConfig, loadConfig } from './config';
 import { EventWatcher, IntentEvent } from './watcher';
 import { IntentEvaluator } from './evaluator';
-import { DEXAdapter, MockDEXAdapter, XSwapV3Adapter } from './adapters/dex';
+import { DEXAdapter, MockDEXAdapter, SimpleDEXAdapter, XSwapV3Adapter } from './adapters/dex';
 import { FacilitatorClient, PaymentRequirements } from './facilitator-client';
 import { TransactionSubmitter } from './submitter';
 import { StateManager } from './state';
@@ -26,9 +26,10 @@ export class Solver {
     this.logger = createLogger(this.config);
     const provider = new ethers.JsonRpcProvider(this.config.rpcUrl);
 
-    this.dexAdapter =
-      this.config.quoterAddress && this.config.routerAddress
-        ? new XSwapV3Adapter(this.config.quoterAddress, this.config.routerAddress, provider)
+    this.dexAdapter = this.config.quoterAddress
+      ? new XSwapV3Adapter(this.config.quoterAddress, this.config.routerAddress ?? '', provider)
+      : this.config.routerAddress
+        ? new SimpleDEXAdapter(this.config.routerAddress, provider)
         : new MockDEXAdapter();
 
     this.state = new StateManager(this.config.stateFilePath, this.logger);
