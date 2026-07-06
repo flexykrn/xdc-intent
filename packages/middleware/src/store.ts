@@ -14,7 +14,79 @@ const IntentRegistryABI = [
   'function getIntent(bytes32 intentId) external view returns (tuple(bytes32 intentId, address user, uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, bytes signature, address[] allowedSolvers, uint8 status, address solver, uint256 fulfilledAmount, bytes32 paymentTxHash))',
 ];
 
+const MockBridgeABI = [
+  'event BridgeOut(bytes32 indexed intentId, address indexed token, uint256 amount, uint256 indexed destChainId, address sender)',
+  'event BridgeIn(bytes32 indexed intentId, address indexed token, uint256 amount, uint256 indexed sourceChainId, address recipient)',
+  'function processed(bytes32 intentId) external view returns (bool)',
+];
+
 const intentRegistry = new ethers.Contract(process.env.INTENT_REGISTRY_ADDRESS || '', IntentRegistryABI, provider);
+const mockBridge = new ethers.Contract(process.env.MOCK_BRIDGE_ADDRESS || '', MockBridgeABI, provider);
+
+export interface BridgeStatus {
+  intentId: string;
+  sourceChainId: number;
+  destChainId: number;
+  locked: boolean;
+  lockedAmount: string;
+  lockedToken: string;
+  bridgeOutTxHash?: string;
+  bridgeInTxHash?: string;
+  processed: boolean;
+}
+
+const bridgeStatusCache = new Map<string, BridgeStatus>();
+
+export async function getBridgeStatus(intentId: string): Promise<BridgeStatus> {
+  const cached = bridgeStatusCache.get(intentId);
+  if (cached) return cached;
+
+  const intent = await getIntentDetails(intentId);
+  const status: BridgeStatus = {
+    intentId,
+    sourceChainId: intent.sourceChainId,
+    destChainId: intent.destChainId,
+    locked: false,
+    lockedAmount: '0',
+    lockedToken: intent.sourceToken,
+    processed: false,
+  };
+
+  if (intent.sourceChainId === intent.destChainId) {
+    return status;
+  }
+
+  try {
+    status.processed = await mockBridge.processed(intentId);
+    const currentBlock = await provider.getBlockNumber();
+    const fromBlock = Math.max(0, currentBlock - 100000);
+
+    const outEvents = await mockBridge.queryFilter(mockBridge.filters.BridgeOut(intentId), fromBlock, currentBlock);
+    if (outEvents.length > 0) {
+      const event = outEvents[outEvents.length - 1] as ethers.EventLog;
+      status.locked = true;
+      status.lockedAmount = event.args[2].toString();
+      status.lockedToken = event.args[1];
+      status.bridgeOutTxHash = event.transactionHash;
+      status.destChainId = Number(event.args[3]);
+    }
+
+    const inEvents = await mockBridge.queryFilter(mockBridge.filters.BridgeIn(intentId), fromBlock, currentBlock);
+    if (inEvents.length > 0) {
+      const event = inEvents[inEvents.length - 1] as ethers.EventLog;
+      status.bridgeInTxHash = event.transactionHash;
+    }
+  } catch (error: any) {
+    console.error(`Failed to fetch bridge status for ${intentId}:`, error.message);
+  }
+
+  bridgeStatusCache.set(intentId, status);
+  return status;
+}
+
+export function invalidateBridgeStatus(intentId: string): void {
+  bridgeStatusCache.delete(intentId);
+}
 
 export interface PaymentRequirements {
   scheme: string;

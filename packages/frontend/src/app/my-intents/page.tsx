@@ -9,9 +9,27 @@ import toast from "react-hot-toast";
 import { useEffect, useState, useCallback } from "react";
 import { ethers } from "ethers";
 
+interface BridgeStatus {
+  intentId: string;
+  sourceChainId: number;
+  destChainId: number;
+  locked: boolean;
+  lockedAmount: string;
+  lockedToken: string;
+  bridgeOutTxHash?: string;
+  bridgeInTxHash?: string;
+  processed: boolean;
+}
+
+const chainNames: Record<number, string> = {
+  51: "Apothem",
+  99999: "MockL2",
+};
+
 export default function MyIntentsPage() {
   const { address, isConnected, sdk } = useWallet();
   const [intents, setIntents] = useState<Intent[]>([]);
+  const [bridgeStatuses, setBridgeStatuses] = useState<Record<string, BridgeStatus>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
@@ -30,7 +48,25 @@ export default function MyIntentsPage() {
           }
         })
       );
-      setIntents(details.filter((d): d is Intent => Boolean(d)));
+      const resolved = details.filter((d): d is Intent => Boolean(d));
+      setIntents(resolved);
+
+      const statusMap: Record<string, BridgeStatus> = {};
+      await Promise.all(
+        resolved.map(async (intent) => {
+          if (intent.sourceChainId === intent.destChainId) return;
+          try {
+            const res = await fetch(`/api/bridge-status?intentId=${intent.intentId}`);
+            const body = await res.json();
+            if (!body.error) {
+              statusMap[intent.intentId] = body;
+            }
+          } catch {
+            // ignore
+          }
+        })
+      );
+      setBridgeStatuses(statusMap);
     } catch (e) {
       const err = e instanceof Error ? e : new Error("Failed to fetch your intents");
       console.error("Failed to fetch intents", e);
@@ -144,6 +180,12 @@ export default function MyIntentsPage() {
                         {intent.intentId.slice(0, 18)}...
                       </a>
                       <div className="text-lg font-semibold text-[var(--ink)]">{ethers.formatEther(intent.sourceAmount)} → {ethers.formatEther(intent.minDestAmount)}</div>
+                      {intent.sourceChainId !== intent.destChainId && (
+                        <div className="text-xs text-[var(--ink-3)] mt-1">
+                          {chainNames[intent.sourceChainId] || intent.sourceChainId} → {chainNames[intent.destChainId] || intent.destChainId}
+                          <BridgeStatusBadge status={bridgeStatuses[intent.intentId]} />
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -183,5 +225,16 @@ function StatusBadge({ status }: { status: IntentStatus }) {
     default:
       return <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-500/10 text-gray-500 rounded-full text-xs font-medium border border-gray-500/20">Unknown</span>;
   }
+}
+
+function BridgeStatusBadge({ status }: { status?: BridgeStatus }) {
+  if (!status) return null;
+  if (status.bridgeInTxHash) {
+    return <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 text-emerald-600 rounded text-[10px] font-medium border border-emerald-500/20"><CheckCircle className="w-3 h-3" />Delivered</span>;
+  }
+  if (status.locked) {
+    return <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-blue-500/10 text-blue-600 rounded text-[10px] font-medium border border-blue-500/20"><Loader2 className="w-3 h-3 animate-spin" />Bridging</span>;
+  }
+  return <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-500/10 text-yellow-600 rounded text-[10px] font-medium border border-yellow-500/20"><Clock className="w-3 h-3" />Pending bridge</span>;
 }
 

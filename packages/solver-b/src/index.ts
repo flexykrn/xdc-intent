@@ -183,6 +183,10 @@ export class Solver {
           metadata: result.txHash,
         });
         this.logger.info(`Fulfilled ${intent.intentId}: ${result.txHash}`);
+
+        if (intent.sourceChainId !== intent.destChainId && this.config.bridgeAddress) {
+          await this.rebalanceCrossChain(intent);
+        }
       } else {
         throw new Error(result.error || 'Fulfillment failed');
       }
@@ -288,6 +292,46 @@ export class Solver {
         signature,
       },
     };
+  }
+
+  private async rebalanceCrossChain(intent: IntentEvent): Promise<void> {
+    if (!this.config.bridgeAddress) return;
+    try {
+      const wallet = this.submitter.getSigner() as ethers.Wallet;
+      const token = new ethers.Contract(
+        intent.sourceToken,
+        ['function approve(address spender, uint256 amount) external returns (bool)'],
+        wallet
+      );
+      const bridge = new ethers.Contract(
+        this.config.bridgeAddress,
+        ['function bridgeOut(bytes32 intentId, address token, uint256 amount, uint256 destChainId) external'],
+        wallet
+      );
+
+      this.logger.info(`Rebalancing cross-chain intent ${intent.intentId}`);
+      const approveTx = await (token as any).approve(this.config.bridgeAddress, intent.sourceAmount);
+      await approveTx.wait();
+
+      const bridgeTx = await (bridge as any).bridgeOut(
+        intent.intentId,
+        intent.sourceToken,
+        intent.sourceAmount,
+        intent.destChainId
+      );
+      await bridgeTx.wait();
+
+      this.state.logDecision({
+        timestamp: Date.now(),
+        intentId: intent.intentId,
+        decision: 'succeeded',
+        reason: `Rebalanced via MockBridge`,
+        metadata: bridgeTx.hash,
+      });
+      this.logger.info(`Rebalanced ${intent.intentId} via MockBridge: ${bridgeTx.hash}`);
+    } catch (error: any) {
+      this.logger.warn(`Rebalance failed for ${intent.intentId}: ${error.message}`);
+    }
   }
 
   stop(): void {

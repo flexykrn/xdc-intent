@@ -10,6 +10,7 @@ import {
   addQuote,
   getQuotes,
   validatePaymentPayload,
+  getBridgeStatus,
   safeBase64Encode,
   safeBase64Decode,
   type Quote,
@@ -195,6 +196,15 @@ app.get('/v1/intents/:intentId', async (req: Request, res: Response) => {
   try {
     const intent = await getIntentDetails(req.params.intentId);
     res.json(intent);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/v1/intents/:intentId/bridge-status', async (req: Request, res: Response) => {
+  try {
+    const status = await getBridgeStatus(req.params.intentId);
+    res.json(status);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
