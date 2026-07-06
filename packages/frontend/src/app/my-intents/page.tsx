@@ -195,7 +195,7 @@ function DetailPanel({ intent }: { intent: IntentData }) {
     { label: "Submitted", done: true },
     { label: "Quoted", done: intent.status !== STATUS_OPEN || true },
     { label: "Fulfilled", done: intent.status === STATUS_FULFILLED },
-    ...(isCrossChain ? [{ label: "Bridged", done: !!bridgeStatus?.locked }] : []),
+    ...(isCrossChain ? [{ label: "Locked", done: !!bridgeStatus?.locked }, { label: "Minted on dest", done: !!bridgeStatus?.minted }] : []),
   ];
 
   return (
@@ -278,19 +278,36 @@ function DetailPanel({ intent }: { intent: IntentData }) {
       {isCrossChain && bridgeStatus && (
         <div className="border-t border-[var(--border)] pt-5 mt-5">
           <div className="text-sm font-medium text-[var(--ink)] mb-3">Bridge Status</div>
-          <Badge variant={bridgeStatus.locked ? "success" : "warning"}>
-            {bridgeStatus.locked ? "Locked on source chain" : "Pending"}
-          </Badge>
-          {bridgeStatus.bridgeOutTxHash && (
-            <a
-              href={`https://testnet.xdcscan.com/tx/${bridgeStatus.bridgeOutTxHash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
-            >
-              View bridge tx <ExternalLink size={12} />
-            </a>
-          )}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Badge variant={bridgeStatus.locked ? "success" : "warning"}>
+                {bridgeStatus.locked ? "Locked on source" : "Pending lock"}
+              </Badge>
+              <Badge variant={bridgeStatus.minted ? "success" : "warning"}>
+                {bridgeStatus.minted ? "Minted on destination" : "Pending mint"}
+              </Badge>
+            </div>
+            {bridgeStatus.bridgeOutTxHash && (
+              <a
+                href={`https://testnet.xdcscan.com/tx/${bridgeStatus.bridgeOutTxHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+              >
+                View lock tx <ExternalLink size={12} />
+              </a>
+            )}
+            {bridgeStatus.bridgeInTxHash && (
+              <a
+                href={`https://testnet.xdcscan.com/tx/${bridgeStatus.bridgeInTxHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ml-3 inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+              >
+                View mint tx <ExternalLink size={12} />
+              </a>
+            )}
+          </div>
         </div>
       )}
 

@@ -32,7 +32,7 @@ describe('Solver Components', () => {
     solverName: 'TestSolver',
     solverFeeBps: 30,
     minDestAmount: 0.95,
-    minSourceAmount: ethers.parseEther('0.001'),
+    minSourceAmount: 0.001,
     maxRetries: 3,
     retryBaseDelayMs: 100,
     retryMaxDelayMs: 1000,
@@ -44,8 +44,9 @@ describe('Solver Components', () => {
   });
 
   describe('IntentEvaluator', () => {
+    const provider = new ethers.JsonRpcProvider('https://erpc.apothem.network');
     const dexAdapter = new MockDEXAdapter();
-    const evaluator = new IntentEvaluator(mockConfig, mockLogger, dexAdapter, 0.05);
+    const evaluator = new IntentEvaluator(mockConfig, mockLogger, provider, dexAdapter, 0.05);
 
     it('should reject expired intent', async () => {
       const intent: IntentEvent = {

@@ -12,10 +12,15 @@ interface IERC20 {
 }
 
 contract MockBridge is IMockBridge, Ownable {
-    mapping(bytes32 => bool) public processed;
+    mapping(bytes32 => bool) public bridgeOutProcessed;
+    mapping(bytes32 => bool) public mintProcessed;
     mapping(address => uint256) public lockedBalances;
 
     constructor() Ownable() {}
+
+    function processed(bytes32 intentId) external view override returns (bool) {
+        return bridgeOutProcessed[intentId] || mintProcessed[intentId];
+    }
 
     function bridgeOut(
         bytes32 intentId,
@@ -25,9 +30,9 @@ contract MockBridge is IMockBridge, Ownable {
     ) external override {
         require(amount > 0, "MockBridge: zero amount");
         require(destChainId != block.chainid, "MockBridge: same chain");
-        require(!processed[intentId], "MockBridge: already processed");
+        require(!bridgeOutProcessed[intentId], "MockBridge: already processed");
 
-        processed[intentId] = true;
+        bridgeOutProcessed[intentId] = true;
         lockedBalances[token] += amount;
 
         require(
@@ -44,8 +49,8 @@ contract MockBridge is IMockBridge, Ownable {
         uint256 amount,
         address recipient
     ) external override onlyOwner {
-        require(!processed[intentId], "MockBridge: already processed");
-        processed[intentId] = true;
+        require(!mintProcessed[intentId], "MockBridge: already processed");
+        mintProcessed[intentId] = true;
 
         IERC20(token).mint(recipient, amount);
 

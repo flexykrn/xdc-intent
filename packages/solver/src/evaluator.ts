@@ -16,9 +16,12 @@ export interface EvaluationResult {
 }
 
 export class IntentEvaluator {
+  private decimalsCache = new Map<string, number>();
+
   constructor(
     private config: SolverConfig,
     private logger: Logger,
+    private provider: ethers.Provider,
     private dexAdapter: DEXAdapter,
     private bridgeAdapter: BridgeAdapter,
     private gasPriceGwei: number = 0.05
@@ -31,7 +34,9 @@ export class IntentEvaluator {
       return { shouldFulfill: false, reason: 'Expiry too soon' };
     }
 
-    if (intent.sourceAmount < this.config.minSourceAmount) {
+    const sourceDecimals = await this.getDecimals(intent.sourceToken);
+    const minSourceAmountRaw = ethers.parseUnits(this.config.minSourceAmount.toString(), sourceDecimals);
+    if (intent.sourceAmount < minSourceAmountRaw) {
       return { shouldFulfill: false, reason: 'Amount too small' };
     }
 
@@ -61,6 +66,7 @@ export class IntentEvaluator {
       };
     }
 
+    const destDecimals = await this.getDecimals(intent.destToken);
     const gasCost = this.estimateGasCost(quote.gasEstimate + (isCrossChain ? 120000n : 100000n));
     const grossProfit = outputAmount - intent.minDestAmount;
     const netProfit = grossProfit - gasCost - intent.maxSolverFee;
@@ -73,7 +79,9 @@ export class IntentEvaluator {
       };
     }
 
-    const profitPercent = (Number(netProfit) / Number(intent.minDestAmount)) * 100;
+    const netProfitHuman = parseFloat(ethers.formatUnits(netProfit, destDecimals));
+    const minDestHuman = parseFloat(ethers.formatUnits(intent.minDestAmount, destDecimals));
+    const profitPercent = (netProfitHuman / minDestHuman) * 100;
 
     if (profitPercent < this.config.minProfitMargin) {
       return {
@@ -91,6 +99,21 @@ export class IntentEvaluator {
       quote,
       bridgeCost,
     };
+  }
+
+  private async getDecimals(token: string): Promise<number> {
+    const cached = this.decimalsCache.get(token.toLowerCase());
+    if (cached !== undefined) return cached;
+
+    try {
+      const tokenContract = new ethers.Contract(token, ['function decimals() view returns (uint8)'], this.provider);
+      const decimals = Number(await tokenContract.decimals());
+      this.decimalsCache.set(token.toLowerCase(), decimals);
+      return decimals;
+    } catch (error: any) {
+      this.logger.warn(`Failed to read decimals for ${token}, defaulting to 18: ${error.message}`);
+      return 18;
+    }
   }
 
   private estimateGasCost(gasLimit: bigint): bigint {

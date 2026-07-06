@@ -34,6 +34,8 @@ export interface BridgeStatus {
   locked: boolean;
   lockedAmount: string;
   lockedToken: string;
+  minted: boolean;
+  mintedAmount: string;
   bridgeOutTxHash?: string;
   bridgeInTxHash?: string;
   processed: boolean;

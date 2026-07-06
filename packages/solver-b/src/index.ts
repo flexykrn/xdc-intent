@@ -10,10 +10,12 @@ import { TransactionSubmitter } from './submitter';
 import { StateManager } from './state';
 import { startSolverHttpServer } from './server';
 import { CircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from './circuit-breaker';
+import { InventoryTracker } from './inventory';
 
 export class Solver {
   private logger: Logger;
   private config: SolverConfig;
+  private provider: ethers.JsonRpcProvider;
   private watcher: EventWatcher;
   private evaluator: IntentEvaluator;
   private dexAdapter: DEXAdapter;
@@ -21,6 +23,7 @@ export class Solver {
   private facilitator: FacilitatorClient;
   private submitter: TransactionSubmitter;
   private state: StateManager;
+  private inventory: InventoryTracker;
   private httpServer?: ReturnType<typeof startSolverHttpServer>;
   private isRunning: boolean = false;
   private retryInterval?: NodeJS.Timeout;
@@ -29,21 +32,22 @@ export class Solver {
   constructor() {
     this.config = loadConfig();
     this.logger = createLogger(this.config);
-    const provider = new ethers.JsonRpcProvider(this.config.rpcUrl);
+    this.provider = new ethers.JsonRpcProvider(this.config.rpcUrl);
 
     this.dexAdapter = this.config.quoterAddress
-      ? new XSwapV3Adapter(this.config.quoterAddress, this.config.routerAddress ?? '', provider)
+      ? new XSwapV3Adapter(this.config.quoterAddress, this.config.routerAddress ?? '', this.provider)
       : this.config.routerAddress
-        ? new SimpleDEXAdapter(this.config.routerAddress, provider)
+        ? new SimpleDEXAdapter(this.config.routerAddress, this.provider)
         : new MockDEXAdapter();
 
-    this.bridgeAdapter = new MockBridgeAdapter(this.config.bridgeAddress, provider);
+    this.bridgeAdapter = new MockBridgeAdapter(this.config.bridgeAddress, this.provider);
 
     this.state = new StateManager(this.config.stateFilePath, this.logger);
     this.watcher = new EventWatcher(this.config, this.logger, this.state);
-    this.evaluator = new IntentEvaluator(this.config, this.logger, this.dexAdapter, this.bridgeAdapter);
+    this.evaluator = new IntentEvaluator(this.config, this.logger, this.provider, this.dexAdapter, this.bridgeAdapter);
     this.facilitator = new FacilitatorClient(this.config, this.logger);
     this.submitter = new TransactionSubmitter(this.config, this.logger);
+    this.inventory = new InventoryTracker(this.provider, this.submitter.getAddress());
     this.fulfillmentBreaker = new CircuitBreaker('fulfillment', DEFAULT_CIRCUIT_BREAKER_CONFIG, this.logger);
   }
 
@@ -61,6 +65,7 @@ export class Solver {
       this.submitter,
       this.config,
       this.fulfillmentBreaker,
+      this.inventory,
       this.logger,
       this.config.facilitatorUrl
     );
@@ -185,6 +190,22 @@ export class Solver {
           return;
         }
         outputAmount = evaluation.estimatedOutput!;
+
+        if (intent.destChainId === this.config.chainId) {
+          const hasInventory = await this.inventory.hasSufficientBalance(intent.destChainId, intent.destToken, outputAmount);
+          if (!hasInventory) {
+            this.logger.warn(`Insufficient inventory for ${intent.intentId}`);
+            this.state.logDecision({
+              timestamp: Date.now(),
+              intentId: intent.intentId,
+              decision: 'skipped',
+              reason: 'Insufficient inventory',
+              metadata: outputAmount.toString(),
+            });
+            this.state.markFailed(intent.intentId);
+            return;
+          }
+        }
 
         const quoteSignature = await this.signQuote(intent.intentId, outputAmount);
         const quoteResult = await this.facilitator.submitQuote({

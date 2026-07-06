@@ -1,9 +1,11 @@
 import http from 'http';
+import { ethers } from 'ethers';
 import { Logger } from './logger';
 import { StateManager } from './state';
 import { TransactionSubmitter } from './submitter';
 import { SolverConfig } from './config';
 import { CircuitBreaker } from './circuit-breaker';
+import { InventoryTracker } from './inventory';
 
 export function startSolverHttpServer(
   port: number,
@@ -11,6 +13,7 @@ export function startSolverHttpServer(
   submitter: TransactionSubmitter,
   config: SolverConfig,
   fulfillmentBreaker: CircuitBreaker,
+  inventory: InventoryTracker,
   logger: Logger,
   facilitatorUrl?: string
 ): http.Server {
@@ -25,7 +28,7 @@ export function startSolverHttpServer(
     }
 
     if (url === '/metrics' && req.method === 'GET') {
-      const metrics = buildPrometheusMetrics(state, fulfillmentBreaker, config);
+      const metrics = await buildPrometheusMetrics(state, fulfillmentBreaker, config, inventory);
       res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
       res.end(metrics);
       return;
@@ -97,18 +100,22 @@ async function buildHealth(
   };
 }
 
-function buildPrometheusMetrics(
+async function buildPrometheusMetrics(
   state: StateManager,
   breaker: CircuitBreaker,
-  config: SolverConfig
-): string {
+  config: SolverConfig,
+  inventory: InventoryTracker
+): Promise<string> {
   const metrics = state.getMetrics();
   const lines: string[] = [];
 
-  const gauge = (name: string, help: string, value: number) => {
+  const gauge = (name: string, help: string, value: number, labels?: Record<string, string>) => {
     lines.push(`# HELP ${name} ${help}`);
     lines.push(`# TYPE ${name} gauge`);
-    lines.push(`${name} ${value}`);
+    const labelStr = labels
+      ? '{' + Object.entries(labels).map(([k, v]) => `${k}="${v}"`).join(',') + '}'
+      : '';
+    lines.push(`${name}${labelStr} ${value}`);
   };
 
   const counter = (name: string, help: string, value: number) => {
@@ -126,6 +133,15 @@ function buildPrometheusMetrics(
   gauge('xdcintent_solver_last_processed_block', 'Last block processed by the watcher', state.getLastProcessedBlock());
   gauge('xdcintent_solver_circuit_breaker_state', 'Circuit breaker state (0=closed,1=half-open,2=open)', circuitStateValue(breaker.getState()));
   gauge('xdcintent_solver_max_retries', 'Configured maximum retry attempts', config.maxRetries);
+
+  for (const entry of inventory.getCachedBalances()) {
+    gauge(
+      'xdcintent_solver_inventory',
+      'Solver token balance per chain',
+      parseFloat(ethers.formatUnits(entry.balance, entry.decimals)),
+      { token: entry.token.toLowerCase(), chain_id: String(entry.chainId) }
+    );
+  }
 
   return lines.join('\n') + '\n';
 }

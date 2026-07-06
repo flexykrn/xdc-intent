@@ -30,6 +30,8 @@ export interface BridgeStatus {
   locked: boolean;
   lockedAmount: string;
   lockedToken: string;
+  minted: boolean;
+  mintedAmount: string;
   bridgeOutTxHash?: string;
   bridgeInTxHash?: string;
   processed: boolean;
@@ -49,6 +51,8 @@ export async function getBridgeStatus(intentId: string): Promise<BridgeStatus> {
     locked: false,
     lockedAmount: '0',
     lockedToken: intent.sourceToken,
+    minted: false,
+    mintedAmount: '0',
     processed: false,
   };
 
@@ -74,6 +78,8 @@ export async function getBridgeStatus(intentId: string): Promise<BridgeStatus> {
     const inEvents = await mockBridge.queryFilter(mockBridge.filters.BridgeIn(intentId), fromBlock, currentBlock);
     if (inEvents.length > 0) {
       const event = inEvents[inEvents.length - 1] as ethers.EventLog;
+      status.minted = true;
+      status.mintedAmount = event.args[2].toString();
       status.bridgeInTxHash = event.transactionHash;
     }
   } catch (error: any) {

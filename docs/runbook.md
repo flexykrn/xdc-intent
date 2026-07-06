@@ -11,7 +11,7 @@ This runbook covers operating the XDC Intent Framework on XDC Apothem testnet.
 | Escrow | `0x5c6fb5D7E81e11C303e5cE00fBE7AE748a47690d` |
 | PaymentVerifier | `0x6Ce223bD961217917aa16654E77A6A440f35A70A` |
 | SolverRegistry | `0x4F87a92E3950ec53AFC1776F14Af33c6E9aab360` |
-| MockBridge | `0x39bf6DDeC0ba4b72C79d623A133ED78a40D4DFfB` |
+| MockBridge | `0xB494122Fb840D928d0f0F98E69985a85E9EBC139` |
 | MockUSDC | `0x86530A99784D188e8343e119140114d9e5fD0546` |
 | MockXDC | `0xfe4E746cA450C46Fe6Ede5EAc184A7F2082B2312` |
 | SimpleDEXFactory | `0x342d081a46F0E26602c6547718a21b37825E9782` |
@@ -39,6 +39,14 @@ Explorer: https://testnet.xdcscan.com
 npm run demo
 ```
 This starts middleware, Solver A, Solver B, and the frontend in parallel.
+
+### Bridge keeper (cross-chain simulation)
+The keeper watches `BridgeOut` events on `MockBridge` and calls `mintOnDest` to simulate tokens arriving on the destination chain. It must be run from the deployer/owner key.
+
+```bash
+cd packages/contracts
+MOCK_BRIDGE_ADDRESS=0xB494122Fb840D928d0f0F98E69985a85E9EBC139 npx hardhat run scripts/bridge-keeper.ts --network apothem
+```
 
 ### Manual startup
 
