@@ -101,6 +101,7 @@ npx hardhat run scripts/e2e-quote-competition.ts --network apothem
 |---|---|---|---|---|
 | Two-solver competition (2026-07-04) | `0xb7a184200e91345077919a060e3011c7eb2ddca6f58dd7c6e5ac11bd5f13d49a` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `2197.8` MXDC | `0x37feb75ac38a91b23e7bf8bb6129dab36e322922ace340e604a7f76056d291b2` |
 | Two-solver competition (2026-07-06) | `0xdd6cb6e0a899912de872ca3635f5402317bfc0a546cc49746287471257f2ec5b` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `2197.8` MXDC | `0x9f53b8608df8869019e80d9bed576de7f4a1840fc2c3f81b3dcf0dd110ca8a2b` |
+| AI agent demo (2026-07-06) | `0xbe165976f566fc509aae1a382347d218edd2c10e5623869b3a40828e15af5939` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `219.78` MXDC | `0x9465e9b4228f71361f3051c4d7096212614dfa6c8169a6f2adc8e0496a3423e5` |
 
 ## AI Agent Demo
 
