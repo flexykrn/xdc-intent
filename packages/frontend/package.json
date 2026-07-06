@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint src/**/*.ts src/**/*.tsx"
+    "lint": "eslint src/**/*.ts src/**/*.tsx",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@walletconnect/ethereum-provider": "^2.23.10",

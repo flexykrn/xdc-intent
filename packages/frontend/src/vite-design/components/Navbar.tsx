@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu, X } from "lucide-react";
@@ -8,79 +9,95 @@ import { useWallet } from "@/components/providers";
 import XDCLogo from "@/components/icons/XDCLogo";
 import { truncateAddress } from "@/lib/utils";
 
-const navLinks = [
-  { label: "Home", href: "/" },
-  { label: "Create Intent", href: "/create" },
+const appLinks = [
+  { label: "Dashboard", href: "/dashboard" },
+  { label: "Create", href: "/create" },
   { label: "Market", href: "/market" },
   { label: "My Intents", href: "/my-intents" },
-  { label: "Agent Demo", href: "/agent-demo" },
-  { label: "Explorer", href: "https://testnet.xdcscan.com", external: true },
+  { label: "Agent", href: "/agent-demo" },
+];
+
+const externalLinks = [
+  { label: "Explorer", href: "https://testnet.xdcscan.com" },
 ];
 
 export default function Navbar() {
   const { isConnected, address, connect, disconnect } = useWallet();
+  const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 20);
+    const onScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+
   return (
     <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-400 ${
-        scrolled ? "bg-[var(--bg)]/90 backdrop-blur-xl border-b border-[var(--border)]" : ""
+      className={`fixed top-7 left-0 right-0 z-50 transition-all duration-300 ${
+        scrolled ? "bg-[var(--bg)]/95 backdrop-blur-xl border-b border-[var(--border)] shadow-sm" : "bg-transparent"
       }`}
     >
-      <nav className="max-w-[1200px] mx-auto px-5 sm:px-8 lg:px-10 py-4 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-3 group">
-          <XDCLogo size={34} />
-          <span className="text-[17px] font-semibold tracking-[-0.02em] text-[var(--ink)]">
+      <nav className="max-w-[1200px] mx-auto px-5 sm:px-8 lg:px-10 h-16 flex items-center justify-between">
+        <Link href="/" className="flex items-center gap-2.5 group">
+          <XDCLogo size={30} />
+          <span className="text-[16px] font-semibold tracking-[-0.02em] text-[var(--ink)]">
             XDCIntent
+          </span>
+          <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full bg-[var(--warning)]/10 text-[var(--warning)] text-[10px] font-semibold border border-[var(--warning)]/20">
+            Testnet
           </span>
         </Link>
 
-        <div className="hidden md:flex items-center gap-8">
-          {navLinks.map((link) =>
-            link.external ? (
-              <a
-                key={link.label}
-                href={link.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[14px] text-[var(--ink-2)] hover:text-[var(--ink)] transition-colors"
-              >
-                {link.label}
-              </a>
-            ) : (
-              <Link
-                key={link.label}
-                href={link.href}
-                className="text-[14px] text-[var(--ink-2)] hover:text-[var(--ink)] transition-colors"
-              >
-                {link.label}
-              </Link>
-            )
-          )}
+        <div className="hidden md:flex items-center gap-1">
+          {appLinks.map((link) => (
+            <Link
+              key={link.label}
+              href={link.href}
+              className={`px-3.5 py-2 rounded-full text-[13px] font-medium transition-colors ${
+                isActive(link.href)
+                  ? "bg-[var(--ink)] text-[var(--bg)]"
+                  : "text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--bg-3)]"
+              }`}
+            >
+              {link.label}
+            </Link>
+          ))}
+          {externalLinks.map((link) => (
+            <a
+              key={link.label}
+              href={link.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3.5 py-2 rounded-full text-[13px] font-medium text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--bg-3)] transition-colors"
+            >
+              {link.label}
+            </a>
+          ))}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {isConnected ? (
             <motion.button
               onClick={disconnect}
-              className="hidden sm:flex items-center gap-2 px-4 py-2.5 rounded-full text-[13px] font-semibold surface-subtle text-[var(--ink)] hover:border-[var(--ink-2)] transition-colors"
+              className="hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-full text-[12px] font-semibold surface-subtle text-[var(--ink)] hover:border-[var(--ink-2)] transition-colors"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
-              <span className="w-2 h-2 rounded-full bg-[var(--success)]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--success)]" />
               {truncateAddress(address, 4, 4)}
             </motion.button>
           ) : (
             <motion.button
               onClick={connect}
-              className="px-5 py-2.5 rounded-full text-[13px] font-semibold btn-primary"
+              className="px-4 py-2 rounded-full text-[12px] font-semibold btn-primary"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
@@ -103,32 +120,33 @@ export default function Navbar() {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="md:hidden overflow-hidden bg-[var(--bg)]/95 backdrop-blur-xl border-b border-[var(--border)]"
+            className="md:hidden overflow-hidden bg-[var(--bg)]/98 backdrop-blur-xl border-b border-[var(--border)]"
           >
             <div className="px-5 py-4 space-y-1">
-              {navLinks.map((link) =>
-                link.external ? (
-                  <a
-                    key={link.label}
-                    href={link.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block px-4 py-3 text-sm text-[var(--ink-2)] hover:text-[var(--ink)] rounded-xl hover:bg-black/5"
-                    onClick={() => setMobileOpen(false)}
-                  >
-                    {link.label}
-                  </a>
-                ) : (
-                  <Link
-                    key={link.label}
-                    href={link.href}
-                    className="block px-4 py-3 text-sm text-[var(--ink-2)] hover:text-[var(--ink)] rounded-xl hover:bg-black/5"
-                    onClick={() => setMobileOpen(false)}
-                  >
-                    {link.label}
-                  </Link>
-                )
-              )}
+              {appLinks.map((link) => (
+                <Link
+                  key={link.label}
+                  href={link.href}
+                  className={`block px-4 py-3 text-sm font-medium rounded-xl transition-colors ${
+                    isActive(link.href)
+                      ? "bg-[var(--ink)] text-[var(--bg)]"
+                      : "text-[var(--ink-2)] hover:text-[var(--ink)] hover:bg-[var(--bg-3)]"
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              ))}
+              {externalLinks.map((link) => (
+                <a
+                  key={link.label}
+                  href={link.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block px-4 py-3 text-sm font-medium text-[var(--ink-2)] hover:text-[var(--ink)] rounded-xl hover:bg-[var(--bg-3)]"
+                >
+                  {link.label}
+                </a>
+              ))}
               {!isConnected && (
                 <button
                   onClick={connect}

@@ -4,6 +4,8 @@ import "./globals.css";
 import { WalletProvider } from "@/components/providers";
 import Navbar from "@/vite-design/components/Navbar";
 import Footer from "@/vite-design/components/Footer";
+import TestnetBanner from "@/components/TestnetBanner";
+import { Toaster } from "react-hot-toast";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -30,11 +32,13 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.variable} ${jetbrains.variable} font-sans antialiased`}>
         <WalletProvider>
-          <div className="min-h-screen relative bg-[var(--bg)] text-[var(--ink)]">
+          <div className="min-h-screen relative bg-[var(--bg)] text-[var(--ink)] flex flex-col">
             <div className="fixed inset-0 pointer-events-none hero-rings" />
+            <TestnetBanner />
             <Navbar />
-            <main>{children}</main>
+            <main className="flex-1 pt-24">{children}</main>
             <Footer />
+            <Toaster position="bottom-right" toastOptions={{ className: "text-sm" }} />
           </div>
         </WalletProvider>
       </body>
