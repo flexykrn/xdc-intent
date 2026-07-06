@@ -4,12 +4,15 @@ import { SolverConfig } from './config';
 import { IntentEvent } from './watcher';
 import { DEXAdapter, SwapQuote } from './adapters/dex';
 
+import { BridgeAdapter } from './adapters/bridge';
+
 export interface EvaluationResult {
   shouldFulfill: boolean;
   reason: string;
   estimatedProfit?: number;
   estimatedOutput?: bigint;
   quote?: SwapQuote;
+  bridgeCost?: bigint;
 }
 
 export class IntentEvaluator {
@@ -17,6 +20,7 @@ export class IntentEvaluator {
     private config: SolverConfig,
     private logger: Logger,
     private dexAdapter: DEXAdapter,
+    private bridgeAdapter: BridgeAdapter,
     private gasPriceGwei: number = 0.05
   ) {}
 
@@ -38,15 +42,26 @@ export class IntentEvaluator {
       return { shouldFulfill: false, reason: `Quote failed: ${error.message}` };
     }
 
-    if (quote.outputAmount < intent.minDestAmount) {
+    let bridgeCost = 0n;
+    const isCrossChain = intent.sourceChainId !== intent.destChainId;
+    if (isCrossChain) {
+      try {
+        bridgeCost = await this.bridgeAdapter.getBridgeCost(intent.sourceChainId, intent.destChainId, quote.outputAmount);
+      } catch (error: any) {
+        return { shouldFulfill: false, reason: `Bridge quote failed: ${error.message}` };
+      }
+    }
+
+    const outputAmount = quote.outputAmount - bridgeCost;
+
+    if (outputAmount < intent.minDestAmount) {
       return {
         shouldFulfill: false,
-        reason: `Quote ${quote.outputAmount} < minDest ${intent.minDestAmount}`,
+        reason: `Quote ${outputAmount} < minDest ${intent.minDestAmount}`,
       };
     }
 
-    const gasCost = this.estimateGasCost(quote.gasEstimate + 100000n);
-    const outputAmount = quote.outputAmount;
+    const gasCost = this.estimateGasCost(quote.gasEstimate + (isCrossChain ? 120000n : 100000n));
     const grossProfit = outputAmount - intent.minDestAmount;
     const netProfit = grossProfit - gasCost - intent.maxSolverFee;
 
@@ -74,6 +89,7 @@ export class IntentEvaluator {
       estimatedProfit: profitPercent,
       estimatedOutput: outputAmount,
       quote,
+      bridgeCost,
     };
   }
 

@@ -5,8 +5,10 @@ import { join } from 'path';
 export interface PendingIntent {
   intentId: string;
   user: string;
+  sourceChainId: number;
   sourceToken: string;
   sourceAmount: string;
+  destChainId: number;
   destToken: string;
   minDestAmount: string;
   maxSolverFee: string;

@@ -1,10 +1,11 @@
 import { ethers } from "ethers";
 
 export const CONTRACTS = {
-  intentRegistry: "0x53d5bDe77bbeC1D0bE9dd0826b66deF2Af63dAA4",
-  escrow: "0xF5BDAA17e4cEA2bD6c19dea300Ff855db1E22288",
-  paymentVerifier: "0x31dFf11EC285ef4167133218bDE2DE8CCAeb36D6",
-  solverRegistry: "0xC4db3B088781431ea29201BaF931FD4B731F3B91",
+  intentRegistry: "0x441f5e07E6FC807E73454B4318ba487e05e65625",
+  escrow: "0x5c6fb5D7E81e11C303e5cE00fBE7AE748a47690d",
+  paymentVerifier: "0x6Ce223bD961217917aa16654E77A6A440f35A70A",
+  solverRegistry: "0x4F87a92E3950ec53AFC1776F14Af33c6E9aab360",
+  mockBridge: "0x39bf6DDeC0ba4b72C79d623A133ED78a40D4DFfB",
 };
 
 export const TOKENS = {
@@ -31,11 +32,13 @@ export const INTENT_REGISTRY_ABI = [
 ];
 
 export const SOLVER_REGISTRY_ABI = [
-  "function registerSolver(string memory name, uint256 feeBps) external returns (uint256)",
+  "function registerSolver(string memory name, uint256 feeBps, uint256[] memory supportedChains) external returns (uint256)",
+  "function updateSupportedChains(uint256[] calldata supportedChains) external",
+  "function supportsChain(address solver, uint256 chainId) external view returns (bool)",
   "function deactivateSolver(uint256 solverId) external",
   "function reactivateSolver(uint256 solverId) external",
   "function isRegistered(address solver) external view returns (bool)",
-  "function getSolver(uint256 solverId) external view returns (tuple(address solverAddress, string name, uint256 feeBps, bool active, uint256 registeredAt))",
+  "function getSolver(uint256 solverId) external view returns (tuple(address solverAddress, string name, uint256 feeBps, bool active, uint256 registeredAt, uint256[] supportedChains))",
   "function getSolverCount() external view returns (uint256)",
 ];
 

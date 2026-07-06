@@ -3,6 +3,7 @@ import { Logger, createLogger } from './logger';
 import { SolverConfig, loadConfig } from './config';
 import { EventWatcher, IntentEvent } from './watcher';
 import { IntentEvaluator } from './evaluator';
+import { BridgeAdapter, MockBridgeAdapter } from './adapters/bridge';
 import { DEXAdapter, MockDEXAdapter, SimpleDEXAdapter, XSwapV3Adapter } from './adapters/dex';
 import { FacilitatorClient, PaymentRequirements } from './facilitator-client';
 import { TransactionSubmitter } from './submitter';
@@ -15,6 +16,7 @@ export class Solver {
   private watcher: EventWatcher;
   private evaluator: IntentEvaluator;
   private dexAdapter: DEXAdapter;
+  private bridgeAdapter: BridgeAdapter;
   private facilitator: FacilitatorClient;
   private submitter: TransactionSubmitter;
   private state: StateManager;
@@ -32,9 +34,11 @@ export class Solver {
         ? new SimpleDEXAdapter(this.config.routerAddress, provider)
         : new MockDEXAdapter();
 
+    this.bridgeAdapter = new MockBridgeAdapter(this.config.bridgeAddress, provider);
+
     this.state = new StateManager(this.config.stateFilePath, this.logger);
     this.watcher = new EventWatcher(this.config, this.logger, this.state);
-    this.evaluator = new IntentEvaluator(this.config, this.logger, this.dexAdapter);
+    this.evaluator = new IntentEvaluator(this.config, this.logger, this.dexAdapter, this.bridgeAdapter);
     this.facilitator = new FacilitatorClient(this.config, this.logger);
     this.submitter = new TransactionSubmitter(this.config, this.logger);
   }
@@ -55,8 +59,10 @@ export class Solver {
       await this.handleIntent({
         intentId: intent.intentId,
         user: intent.user,
+        sourceChainId: intent.sourceChainId ?? 51,
         sourceToken: intent.sourceToken,
         sourceAmount: BigInt(intent.sourceAmount),
+        destChainId: intent.destChainId ?? 51,
         destToken: intent.destToken,
         minDestAmount: BigInt(intent.minDestAmount),
         maxSolverFee: BigInt(intent.maxSolverFee),
@@ -75,10 +81,10 @@ export class Solver {
       const wallet = new ethers.Wallet(this.config.privateKey, provider);
       const registry = new ethers.Contract(
         this.config.solverRegistryAddress,
-        ['function registerSolver(string memory name, uint256 feeBps) external returns (uint256)'],
+        ['function registerSolver(string memory name, uint256 feeBps, uint256[] memory supportedChains) external returns (uint256)'],
         wallet
       );
-      const tx = await registry.registerSolver(this.config.solverName, this.config.solverFeeBps);
+      const tx = await registry.registerSolver(this.config.solverName, this.config.solverFeeBps, this.config.supportedChains);
       await tx.wait();
       this.logger.info(`Registered solver ${this.config.solverName} with fee ${this.config.solverFeeBps} bps`);
     } catch (error: any) {
@@ -104,8 +110,10 @@ export class Solver {
       this.state.addPendingIntent({
         intentId: intent.intentId,
         user: intent.user,
+        sourceChainId: intent.sourceChainId,
         sourceToken: intent.sourceToken,
         sourceAmount: intent.sourceAmount.toString(),
+        destChainId: intent.destChainId,
         destToken: intent.destToken,
         minDestAmount: intent.minDestAmount.toString(),
         maxSolverFee: intent.maxSolverFee.toString(),

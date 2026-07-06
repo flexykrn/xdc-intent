@@ -93,7 +93,7 @@ describe("IntentRegistry (plan-aligned)", function () {
     await escrow.addAllowedToken(await token.getAddress());
     await verifier.registerFacilitator(facilitator.address);
     await verifier.registerFacilitator(await registry.getAddress());
-    await solverRegistry.connect(solver).registerSolver("TestSolver", 30);
+    await solverRegistry.connect(solver).registerSolver("TestSolver", 30, [31337, 51]);
 
     await token.mint(user.address, ethers.parseEther("10000"));
     await token.connect(user).approve(await escrow.getAddress(), ethers.parseEther("10000"));

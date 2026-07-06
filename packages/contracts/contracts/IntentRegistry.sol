@@ -127,6 +127,7 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
         );
 
         require(solverRegistry.isRegistered(msg.sender), "IntentRegistry: solver not registered");
+        require(solverRegistry.supportsChain(msg.sender, intent.destChainId), "IntentRegistry: solver does not support dest chain");
 
         intent.status = IntentStatus.Fulfilled;
         intent.solver = msg.sender;

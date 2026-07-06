@@ -37,6 +37,14 @@ async function main() {
     console.log(`MockXDC deployed to: ${mockXDCAddress}`);
   }
 
+  // Deploy MockBridge
+  console.log("Deploying MockBridge...");
+  const MockBridge = await ethers.getContractFactory("MockBridge");
+  const mockBridge = await MockBridge.deploy();
+  await mockBridge.waitForDeployment();
+  const mockBridgeAddress = await mockBridge.getAddress();
+  console.log(`MockBridge deployed to: ${mockBridgeAddress}`);
+
   // Deploy Escrow
   console.log("Deploying Escrow...");
   const Escrow = await ethers.getContractFactory("Escrow");
@@ -109,6 +117,7 @@ async function main() {
       PaymentVerifier: paymentVerifierAddress,
       IntentRegistry: intentRegistryAddress,
       SolverRegistry: solverRegistryAddress,
+      MockBridge: mockBridgeAddress,
     },
     tokens: {
       MockUSDC: mockUSDCAddress,

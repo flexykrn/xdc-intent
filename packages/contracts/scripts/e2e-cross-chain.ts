@@ -6,6 +6,7 @@ dotenv.config();
 
 const RPC_URL = process.env.XDC_TESTNET_RPC || "https://erpc.apothem.network";
 const CHAIN_ID = 51;
+const MOCK_DEST_CHAIN = 99999;
 
 const CONTRACTS = {
   escrow: "0x5c6fb5D7E81e11C303e5cE00fBE7AE748a47690d",
@@ -37,9 +38,9 @@ async function main() {
     user
   );
 
-  const sourceAmount = ethers.parseUnits("100", 6);
-  const minDestAmount = ethers.parseEther("1900");
-  const maxSolverFee = ethers.parseUnits("2", 6);
+  const sourceAmount = ethers.parseUnits("10", 6);
+  const minDestAmount = ethers.parseEther("180");
+  const maxSolverFee = ethers.parseUnits("1", 6);
 
   console.log("Minting MockUSDC to user...");
   await (await mockUSDC.mint(user.address, sourceAmount)).wait();
@@ -53,7 +54,7 @@ async function main() {
     sourceChainId: CHAIN_ID,
     sourceToken: TOKENS.mockUSDC,
     sourceAmount,
-    destChainId: CHAIN_ID,
+    destChainId: MOCK_DEST_CHAIN,
     destToken: TOKENS.mockXDC,
     minDestAmount,
     maxSolverFee,
@@ -65,7 +66,7 @@ async function main() {
   const signed = await userSDK.signIntent(user.address, params);
   console.log("Intent ID:", signed.intentId);
 
-  console.log("Submitting intent...");
+  console.log("Submitting cross-chain intent...");
   const submitTx = await userSDK.submitIntent(signed);
   await submitTx.wait();
   console.log("Submitted:", submitTx.hash);
@@ -77,7 +78,7 @@ async function main() {
     const intent = await userSDK.getIntent(signed.intentId);
     if (intent.status === 1) {
       fulfilled = true;
-      console.log("✅ Fulfilled by:", intent.solver);
+      console.log("✅ Cross-chain fulfilled by:", intent.solver);
       console.log("Fulfilled amount:", intent.fulfilledAmount.toString());
       console.log("Payment tx hash:", intent.paymentTxHash);
       break;
@@ -90,7 +91,6 @@ async function main() {
     process.exit(1);
   }
 
-  // Show quotes
   const quotesRes = await fetch(`http://localhost:3002/v1/intents/${signed.intentId}/quotes`);
   const quotes = await quotesRes.json();
   console.log("Quotes received:", JSON.stringify(quotes, null, 2));

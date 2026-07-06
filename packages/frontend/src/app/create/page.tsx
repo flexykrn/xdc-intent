@@ -28,6 +28,11 @@ const tokens: TokenInfo[] = [
   { symbol: "MXDC", name: "Mock XDC", address: "0xfe4E746cA450C46Fe6Ede5EAc184A7F2082B2312" },
 ];
 
+const chains = [
+  { chainId: 51, name: "XDC Apothem", short: "Apothem" },
+  { chainId: 99999, name: "Mock L2", short: "MockL2" },
+];
+
 export default function CreatePage() {
   const { isConnected, sdk, address } = useWallet();
   const router = useRouter();
@@ -42,6 +47,8 @@ export default function CreatePage() {
   const [showFromDropdown, setShowFromDropdown] = useState(false);
   const [showToDropdown, setShowToDropdown] = useState(false);
   const [showExpiryDropdown, setShowExpiryDropdown] = useState(false);
+  const [showSourceChainDropdown, setShowSourceChainDropdown] = useState(false);
+  const [showDestChainDropdown, setShowDestChainDropdown] = useState(false);
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -140,23 +147,57 @@ export default function CreatePage() {
               )}
 
               <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
+                <div className="relative">
                   <label className="text-sm font-medium text-[var(--ink-3)] mb-2 block">Source chain</label>
-                  <input
-                    type="number"
-                    value={sourceChainId}
-                    onChange={(e) => setSourceChainId(Number(e.target.value))}
-                    className="w-full p-3 rounded-xl surface-subtle bg-transparent text-[var(--ink)] outline-none"
-                  />
+                  <motion.button
+                    onClick={() => setShowSourceChainDropdown(!showSourceChainDropdown)}
+                    className="w-full flex items-center justify-between p-3 rounded-xl surface-subtle"
+                    whileTap={{ scale: 0.99 }}
+                  >
+                    <span className="font-semibold text-[var(--ink)]">{chains.find((c) => c.chainId === sourceChainId)?.name}</span>
+                    <ChevronDown size={18} className="text-[var(--ink-3)]" />
+                  </motion.button>
+                  <AnimatePresence>
+                    {showSourceChainDropdown && (
+                      <motion.div initial={{ opacity: 0, y: -8, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.95 }} className="absolute top-full left-0 right-0 mt-2 rounded-2xl overflow-hidden z-50 surface">
+                        {chains.map((chain) => (
+                          <button
+                            key={chain.chainId}
+                            onClick={() => { setSourceChainId(chain.chainId); setShowSourceChainDropdown(false); }}
+                            className={`w-full text-left px-4 py-3.5 transition-colors hover:bg-[var(--bg-3)] ${sourceChainId === chain.chainId ? "bg-[var(--bg-3)]" : ""}`}
+                          >
+                            <span className={`text-sm font-semibold ${sourceChainId === chain.chainId ? "text-[var(--accent)]" : "text-[var(--ink)]"}`}>{chain.name}</span>
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
-                <div>
+                <div className="relative">
                   <label className="text-sm font-medium text-[var(--ink-3)] mb-2 block">Dest chain</label>
-                  <input
-                    type="number"
-                    value={destChainId}
-                    onChange={(e) => setDestChainId(Number(e.target.value))}
-                    className="w-full p-3 rounded-xl surface-subtle bg-transparent text-[var(--ink)] outline-none"
-                  />
+                  <motion.button
+                    onClick={() => setShowDestChainDropdown(!showDestChainDropdown)}
+                    className="w-full flex items-center justify-between p-3 rounded-xl surface-subtle"
+                    whileTap={{ scale: 0.99 }}
+                  >
+                    <span className="font-semibold text-[var(--ink)]">{chains.find((c) => c.chainId === destChainId)?.name}</span>
+                    <ChevronDown size={18} className="text-[var(--ink-3)]" />
+                  </motion.button>
+                  <AnimatePresence>
+                    {showDestChainDropdown && (
+                      <motion.div initial={{ opacity: 0, y: -8, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.95 }} className="absolute top-full left-0 right-0 mt-2 rounded-2xl overflow-hidden z-50 surface">
+                        {chains.map((chain) => (
+                          <button
+                            key={chain.chainId}
+                            onClick={() => { setDestChainId(chain.chainId); setShowDestChainDropdown(false); }}
+                            className={`w-full text-left px-4 py-3.5 transition-colors hover:bg-[var(--bg-3)] ${destChainId === chain.chainId ? "bg-[var(--bg-3)]" : ""}`}
+                          >
+                            <span className={`text-sm font-semibold ${destChainId === chain.chainId ? "text-[var(--accent)]" : "text-[var(--ink)]"}`}>{chain.name}</span>
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </div>
 

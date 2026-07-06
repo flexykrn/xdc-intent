@@ -26,6 +26,8 @@ export const SolverConfigSchema = z.object({
   logLevel: z.enum(['error', 'warn', 'info', 'debug']),
   solverName: z.string().min(1),
   solverFeeBps: z.number().int().min(0).max(10000),
+  supportedChains: z.array(z.number().int().positive()),
+  bridgeAddress: z.string().regex(/^$|^0x[a-fA-F0-9]{40}$/).transform((v) => v || undefined),
   minDestAmount: z.number().min(0).max(1),
   minSourceAmount: z.bigint().min(0n),
 });
@@ -55,6 +57,8 @@ export function loadConfig(): SolverConfig {
     logLevel: (process.env.LOG_LEVEL || 'info') as 'error' | 'warn' | 'info' | 'debug',
     solverName: process.env.SOLVER_NAME || 'XDC-Solver',
     solverFeeBps: parseInt(process.env.SOLVER_FEE_BPS || '30'),
+    supportedChains: (process.env.SUPPORTED_CHAINS || '51').split(',').map((c) => parseInt(c.trim(), 10)).filter(Boolean),
+    bridgeAddress: process.env.BRIDGE_ADDRESS,
     minDestAmount: parseFloat(process.env.MIN_DEST_AMOUNT || '0.95'),
     minSourceAmount: process.env.MIN_SOURCE_AMOUNT ? BigInt(process.env.MIN_SOURCE_AMOUNT) : 1000n,
   };

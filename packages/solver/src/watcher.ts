@@ -6,8 +6,10 @@ import { StateManager } from './state';
 export interface IntentEvent {
   intentId: string;
   user: string;
+  sourceChainId: number;
   sourceToken: string;
   sourceAmount: bigint;
+  destChainId: number;
   destToken: string;
   minDestAmount: bigint;
   maxSolverFee: bigint;
@@ -88,8 +90,10 @@ export class EventWatcher {
           callback({
             intentId,
             user: args[1],
+            sourceChainId: Number(full.sourceChainId),
             sourceToken: args[2],
             sourceAmount: args[3],
+            destChainId: Number(full.destChainId),
             destToken: args[4],
             minDestAmount: args[5],
             maxSolverFee: full.maxSolverFee,
