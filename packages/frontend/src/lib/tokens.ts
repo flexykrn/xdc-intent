@@ -23,7 +23,7 @@ export const TOKENS: TokenInfo[] = [
     symbol: "MUSDC",
     name: "Mock USDC",
     address: "0x86530A99784D188e8343e119140114d9e5fD0546",
-    decimals: 6,
+    decimals: 18,
     chainId: 51,
   },
   {

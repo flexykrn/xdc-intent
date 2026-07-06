@@ -1,0 +1,26 @@
+C:\Users\karan\Desktop\openscans\xdc-intent\node_modules\@nomicfoundation\hardhat-ethers\src\internal\hardhat-ethers-provider.ts:364
+    throw new NotImplementedError("HardhatEthersProvider.resolveName");
+          ^
+NomicLabsHardhatPluginError [NotImplementedError]: Method 'HardhatEthersProvider.resolveName' is not implemented
+    at HardhatEthersProvider.resolveName (C:\Users\karan\Desktop\openscans\xdc-intent\node_modules\@nomicfoundation\hardhat-ethers\src\internal\hardhat-ethers-provider.ts:364:11)
+    at HardhatEthersSigner.resolveName (C:\Users\karan\Desktop\openscans\xdc-intent\node_modules\@nomicfoundation\hardhat-ethers\src\signers.ts:168:26)
+    at new BaseContract (C:\Users\karan\Desktop\openscans\xdc-intent\node_modules\ethers\src.ts\contract\contract.ts:722:40)
+    at new Contract (C:\Users\karan\Desktop\openscans\xdc-intent\node_modules\ethers\src.ts\contract\contract.ts:1120:1)
+    at getContractAtFromArtifact (C:\Users\karan\Desktop\openscans\xdc-intent\node_modules\@nomicfoundation\hardhat-ethers\src\internal\helpers.ts:426:18)
+    at getContractAt (C:\Users\karan\Desktop\openscans\xdc-intent\node_modules\@nomicfoundation\hardhat-ethers\src\internal\helpers.ts:334:12)
+    at async main (C:\Users\karan\Desktop\openscans\xdc-intent\packages\contracts\scripts\bridge-keeper.ts:11:22) {
+  parent: undefined,
+  _stack: "NotImplementedError: Method 'HardhatEthersProvider.resolveName' is not implemented\n" +
+    '    at HardhatEthersProvider.resolveName (C:\\Users\\karan\\Desktop\\openscans\\xdc-intent\\node_modules\\@nomicfoundation\\hardhat-ethers\\src\\internal\\hardhat-ethers-provider.ts:364:11)\n' +
+    '    at HardhatEthersSigner.resolveName (C:\\Users\\karan\\Desktop\\openscans\\xdc-intent\\node_modules\\@nomicfoundation\\hardhat-ethers\\src\\signers.ts:168:26)\n' +
+    '    at new BaseContract (C:\\Users\\karan\\Desktop\\openscans\\xdc-intent\\node_modules\\ethers\\src.ts\\contract\\contract.ts:722:40)\n' +
+    '    at new Contract (C:\\Users\\karan\\Desktop\\openscans\\xdc-intent\\node_modules\\ethers\\src.ts\\contract\\contract.ts:1120:1)\n' +
+    '    at getContractAtFromArtifact (C:\\Users\\karan\\Desktop\\openscans\\xdc-intent\\node_modules\\@nomicfoundation\\hardhat-ethers\\src\\internal\\helpers.ts:426:18)\n' +
+    '    at getContractAt (C:\\Users\\karan\\Desktop\\openscans\\xdc-intent\\node_modules\\@nomicfoundation\\hardhat-ethers\\src\\internal\\helpers.ts:334:12)\n' +
+    '    at async main (C:\\Users\\karan\\Desktop\\openscans\\xdc-intent\\packages\\contracts\\scripts\\bridge-keeper.ts:11:22)',
+  pluginName: '@nomicfoundation/hardhat-ethers',
+  _isHardhatPluginError: true,
+  shouldBeReported: false,
+  _isNomicLabsHardhatPluginError: true
+}
+Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94
