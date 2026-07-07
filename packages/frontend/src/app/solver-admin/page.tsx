@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR, { mutate } from "swr";
 import { ethers } from "ethers";
 import { Activity, AlertCircle, Loader2, RefreshCw, Server, Wallet, Award, TrendingUp } from "lucide-react";
@@ -42,6 +42,16 @@ interface SolverRegistryInfo {
   active: boolean;
   registeredAt: number;
   supportedChains: number[];
+  stake: bigint;
+  withdrawableStake: bigint;
+  withdrawUnlockTime: number;
+}
+
+function formatEtherCompact(value: bigint): string {
+  if (value === 0n) return "0";
+  const formatted = ethers.formatEther(value);
+  const num = parseFloat(formatted);
+  return num < 0.001 ? "<0.001" : num.toFixed(Math.min(4, Math.max(0, 4 - Math.floor(Math.log10(num)))));
 }
 
 interface SolverBalance {
@@ -131,6 +141,11 @@ async function fetchRegistryInfo(solverAddresses: string[]): Promise<SolverRegis
       const s = await registry.getSolver(i);
       const addr = s.solverAddress.toLowerCase();
       if (solverAddresses.some((a) => a.toLowerCase() === addr)) {
+        const [stake, withdrawableStake, withdrawUnlockTime] = await Promise.all([
+          registry.getStake(s.solverAddress).catch(() => 0n),
+          registry.getWithdrawableStake(s.solverAddress).catch(() => 0n),
+          registry.getWithdrawUnlockTime(s.solverAddress).catch(() => 0n),
+        ]);
         results.push({
           id: i,
           address: s.solverAddress,
@@ -139,6 +154,9 @@ async function fetchRegistryInfo(solverAddresses: string[]): Promise<SolverRegis
           active: s.active,
           registeredAt: Number(s.registeredAt) * 1000,
           supportedChains: s.supportedChains.map((c: bigint) => Number(c)),
+          stake,
+          withdrawableStake,
+          withdrawUnlockTime: Number(withdrawUnlockTime) * 1000,
         });
       }
     } catch {
@@ -266,6 +284,13 @@ function useSolverReputations(windowSize: number) {
 }
 
 export default function SolverAdminPage() {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   const middlewareHealth = useServiceHealth(SERVICES[0].url);
   const solverAHealth = useServiceHealth(SERVICES[1].url);
   const solverBHealth = useServiceHealth(SERVICES[2].url);
@@ -432,6 +457,20 @@ export default function SolverAdminPage() {
                     <div className="p-3 rounded-xl bg-[var(--bg-3)] border border-[var(--border)]">
                       <div className="text-[11px] text-[var(--ink-3)] mb-1">Fee</div>
                       <div className="text-sm font-medium text-[var(--ink)]">{info ? `${(info.feeBps / 100).toFixed(2)}%` : "—"}</div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-[var(--bg-3)] border border-[var(--border)]">
+                      <div className="text-[11px] text-[var(--ink-3)] mb-1">Stake</div>
+                      <div className="text-sm font-medium text-[var(--ink)]">{info ? `${formatEtherCompact(info.stake + info.withdrawableStake)} XDC` : "—"}</div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-[var(--bg-3)] border border-[var(--border)]">
+                      <div className="text-[11px] text-[var(--ink-3)] mb-1">Withdrawal</div>
+                      <div className="text-sm font-medium text-[var(--ink)]">
+                        {info && info.withdrawableStake > 0n
+                          ? info.withdrawUnlockTime <= now
+                            ? "Ready"
+                            : `Cooldown ${Math.ceil((info.withdrawUnlockTime - now) / 86400000)}d`
+                          : "—"}
+                      </div>
                     </div>
                   </div>
 

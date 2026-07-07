@@ -28,11 +28,15 @@ export const SolverConfigSchema = z.object({
   logLevel: z.enum(['error', 'warn', 'info', 'debug']),
   solverName: z.string().min(1),
   solverFeeBps: z.number().int().min(0).max(10000),
+  solverBondAmount: z.bigint().optional(),
   supportedChains: z.array(z.number().int().positive()),
   // Per-chain RPC URLs. For mocked cross-chain setups (e.g. Apothem + MockL2 on the same RPC),
   // leaving this empty causes every supported chain to fall back to rpcUrl.
   chainRpcUrls: z.record(z.string(), z.string().url()).default({}),
   bridgeAddress: z.string().regex(/^$|^0x[a-fA-F0-9]{40}$/).transform((v) => v || undefined),
+  lzBridgeAddress: z.string().regex(/^$|^0x[a-fA-F0-9]{40}$/).default('').transform((v) => v || undefined),
+  lzEids: z.record(z.string(), z.number().int().positive()).default({}),
+  lzReceiveGas: z.number().int().positive().default(200_000),
   minDestAmount: z.number().min(0).max(1),
   minSourceAmount: z.number().min(0).default(0.001),
   maxRetries: z.number().int().min(0).default(3),
@@ -67,6 +71,15 @@ export function loadConfig(): SolverConfig {
     logLevel: (process.env.LOG_LEVEL || 'info') as 'error' | 'warn' | 'info' | 'debug',
     solverName: process.env.SOLVER_NAME || 'XDC-Solver',
     solverFeeBps: parseInt(process.env.SOLVER_FEE_BPS || '30'),
+    solverBondAmount: (() => {
+      const raw = process.env.SOLVER_BOND_AMOUNT;
+      if (!raw) return undefined;
+      try {
+        return BigInt(raw);
+      } catch {
+        return undefined;
+      }
+    })(),
     supportedChains: (process.env.SUPPORTED_CHAINS || '51').split(',').map((c) => parseInt(c.trim(), 10)).filter(Boolean),
     chainRpcUrls: (() => {
       try {
@@ -76,6 +89,15 @@ export function loadConfig(): SolverConfig {
       }
     })(),
     bridgeAddress: process.env.BRIDGE_ADDRESS,
+    lzBridgeAddress: process.env.LZ_BRIDGE_ADDRESS,
+    lzEids: (() => {
+      try {
+        return process.env.LZ_EIDS ? JSON.parse(process.env.LZ_EIDS) : {};
+      } catch {
+        return {};
+      }
+    })(),
+    lzReceiveGas: parseInt(process.env.LZ_RECEIVE_GAS || '200000', 10),
     minDestAmount: parseFloat(process.env.MIN_DEST_AMOUNT || '0.95'),
     minSourceAmount: parseFloat(process.env.MIN_SOURCE_AMOUNT || '0.001'),
     maxRetries: parseInt(process.env.MAX_RETRIES || '3', 10),

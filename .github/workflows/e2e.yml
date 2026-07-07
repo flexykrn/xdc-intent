@@ -1,0 +1,40 @@
+name: E2E Demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      dest_chain_id:
+        description: 'Cross-chain destination chain ID'
+        required: false
+        default: '99999'
+
+jobs:
+  e2e:
+    # The demo script (scripts/demo-e2e.ps1) is PowerShell and uses Windows-specific
+    # networking commands (Get-NetTCPConnection). Run it on windows-latest or a
+    # self-hosted Windows runner that has Node.js, npm, and the required private keys.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run E2E demo
+        shell: pwsh
+        env:
+          DEST_CHAIN_ID: ${{ github.event.inputs.dest_chain_id }}
+        run: |
+          npm run demo:e2e
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: logs/

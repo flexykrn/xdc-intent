@@ -12,6 +12,8 @@
     "dev:b": "env-cmd -f .env.solver-b ts-node src/index.ts",
     "start:a": "env-cmd -f .env.solver-a node dist/index.js",
     "start:b": "env-cmd -f .env.solver-b node dist/index.js",
+    "health-check": "ts-node scripts/health-check.ts",
+    "alert-check": "ts-node scripts/alert-webhook.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",

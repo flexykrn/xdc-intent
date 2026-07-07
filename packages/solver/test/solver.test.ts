@@ -518,10 +518,8 @@ describe('Solver Components', () => {
       solver = new Solver();
       (solver as any).isRunning = true;
 
-      const approveSpy = vi.fn().mockResolvedValue(undefined);
-      const bridgeSpy = vi.fn().mockResolvedValue('0x' + '66'.repeat(32));
-      (solver as any).approveToken = approveSpy;
-      (solver as any).bridgeSourceTokens = bridgeSpy;
+      const approveSpy = vi.spyOn(solver as any, 'approveToken').mockResolvedValue(undefined);
+      const bridgeSpy = vi.spyOn(solver as any, 'bridgeSourceTokens').mockResolvedValue('0x' + '66'.repeat(32));
 
       vi.spyOn((solver as any).evaluator, 'evaluate').mockResolvedValue({
         shouldFulfill: true,

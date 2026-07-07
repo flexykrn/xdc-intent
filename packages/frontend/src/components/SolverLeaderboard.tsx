@@ -16,12 +16,29 @@ interface SolverInfo {
   active: boolean;
   registeredAt: number;
   supportedChains: number[];
+  stake: bigint;
+  withdrawableStake: bigint;
+  withdrawUnlockTime: number;
+}
+
+function formatEtherCompact(value: bigint): string {
+  if (value === 0n) return "0";
+  const formatted = ethers.formatEther(value);
+  const num = parseFloat(formatted);
+  return num < 0.001 ? "<0.001" : num.toFixed(Math.min(4, Math.max(0, 4 - Math.floor(Math.log10(num)))));
 }
 
 export function SolverLeaderboard() {
   const [solvers, setSolvers] = useState<SolverInfo[]>([]);
+  const [requiredBond, setRequiredBond] = useState<bigint | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,11 +47,18 @@ export function SolverLeaderboard() {
       try {
         const registry = new ethers.Contract(CONTRACTS.solverRegistry, SOLVER_REGISTRY_ABI, provider);
         const count = Number(await registry.getSolverCount());
+        const bond = await registry.requiredBond();
+        if (!cancelled) setRequiredBond(bond);
         const items: SolverInfo[] = [];
 
         for (let i = 1; i <= count; i++) {
           try {
             const s = await registry.getSolver(i);
+            const [stake, withdrawableStake, withdrawUnlockTime] = await Promise.all([
+              registry.getStake(s.solverAddress).catch(() => 0n),
+              registry.getWithdrawableStake(s.solverAddress).catch(() => 0n),
+              registry.getWithdrawUnlockTime(s.solverAddress).catch(() => 0n),
+            ]);
             items.push({
               id: i,
               address: s.solverAddress,
@@ -43,6 +67,9 @@ export function SolverLeaderboard() {
               active: s.active,
               registeredAt: Number(s.registeredAt) * 1000,
               supportedChains: s.supportedChains.map((c: bigint) => Number(c)),
+              stake,
+              withdrawableStake,
+              withdrawUnlockTime: Number(withdrawUnlockTime) * 1000,
             });
           } catch {
             // skip stale or invalid solver entries
@@ -106,7 +133,18 @@ export function SolverLeaderboard() {
 
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={solver.active ? "success" : "default"}>{solver.active ? "Active" : "Inactive"}</Badge>
+            {!solver.active && solver.stake === 0n && (
+              <Badge variant="error">Slashed</Badge>
+            )}
             <Badge variant="info">{(solver.feeBps / 100).toFixed(2)}% fee</Badge>
+            <span title={`Required bond: ${requiredBond !== null ? formatEtherCompact(requiredBond) : "—"}`}>
+              <Badge variant="default">{formatEtherCompact(solver.stake + solver.withdrawableStake)} XDC stake</Badge>
+            </span>
+            {solver.withdrawableStake > 0n && (
+              <Badge variant={solver.withdrawUnlockTime <= now ? "success" : "warning"}>
+                {solver.withdrawUnlockTime <= now ? "Withdraw ready" : `Cooldown ${Math.ceil((solver.withdrawUnlockTime - now) / 86400000)}d`}
+              </Badge>
+            )}
             {solver.supportedChains.map((chainId) => (
               <Badge key={chainId} variant="default">{chainName(chainId)}</Badge>
             ))}

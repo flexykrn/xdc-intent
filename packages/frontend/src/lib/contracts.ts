@@ -32,14 +32,29 @@ export const INTENT_REGISTRY_ABI = [
 ];
 
 export const SOLVER_REGISTRY_ABI = [
-  "function registerSolver(string memory name, uint256 feeBps, uint256[] memory supportedChains) external returns (uint256)",
+  "function requiredBond() external view returns (uint256)",
+  "function treasury() external view returns (address)",
+  "function registerSolver(string memory name, uint256 feeBps, uint256[] memory supportedChains) external payable returns (uint256)",
   "function updateSupportedChains(uint256[] calldata supportedChains) external",
   "function supportsChain(address solver, uint256 chainId) external view returns (bool)",
   "function deactivateSolver(uint256 solverId) external",
   "function reactivateSolver(uint256 solverId) external",
+  "function slashSolver(address solver, uint256 amount) external",
+  "function unstake(uint256 amount) external",
+  "function withdrawStake() external",
+  "function getStake(address solver) external view returns (uint256)",
+  "function getWithdrawableStake(address solver) external view returns (uint256)",
+  "function getWithdrawUnlockTime(address solver) external view returns (uint256)",
   "function isRegistered(address solver) external view returns (bool)",
   "function getSolver(uint256 solverId) external view returns (tuple(address solverAddress, string name, uint256 feeBps, bool active, uint256 registeredAt, uint256[] supportedChains))",
   "function getSolverCount() external view returns (uint256)",
+  "event SolverRegistered(uint256 indexed solverId, address indexed solverAddress, string name, uint256 feeBps, uint256[] supportedChains)",
+  "event SolverStaked(address indexed solver, uint256 amount)",
+  "event SolverSlashed(address indexed solver, uint256 amount, address indexed treasury)",
+  "event StakeWithdrawn(address indexed solver, uint256 amount)",
+  "event SolverDeactivated(uint256 indexed solverId, address indexed solverAddress)",
+  "event SolverReactivated(uint256 indexed solverId, address indexed solverAddress)",
+  "event SupportedChainsUpdated(address indexed solverAddress, uint256[] supportedChains)",
 ];
 
 export const ERC20_ABI = [

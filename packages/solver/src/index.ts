@@ -4,7 +4,7 @@ import { Logger, createLogger } from './logger';
 import { SolverConfig, loadConfig } from './config';
 import { EventWatcher, IntentEvent } from './watcher';
 import { IntentEvaluator } from './evaluator';
-import { BridgeAdapter, MockBridgeAdapter } from './adapters/bridge';
+import { BridgeAdapter, MockBridgeAdapter, LayerZeroBridgeAdapter } from './adapters/bridge';
 import { DEXAdapter, MockDEXAdapter, SimpleDEXAdapter, XSwapV3Adapter } from './adapters/dex';
 import { FacilitatorClient, PaymentRequirements } from './facilitator-client';
 import { TransactionSubmitter } from './submitter';
@@ -21,6 +21,7 @@ export class Solver {
   private evaluator: IntentEvaluator;
   private dexAdapter: DEXAdapter;
   private bridgeAdapter: BridgeAdapter;
+  private lzBridgeAdapter?: BridgeAdapter;
   private facilitator: FacilitatorClient;
   private submitter: TransactionSubmitter;
   private state: StateManager;
@@ -47,6 +48,14 @@ export class Solver {
         : new MockDEXAdapter();
 
     this.bridgeAdapter = new MockBridgeAdapter(this.config.bridgeAddress, this.provider);
+    this.lzBridgeAdapter = this.config.lzBridgeAddress
+      ? new LayerZeroBridgeAdapter(
+          this.config.lzBridgeAddress,
+          this.provider,
+          this.config.lzEids,
+          this.config.lzReceiveGas
+        )
+      : undefined;
 
     this.state = new StateManager(this.config.stateFilePath, this.logger);
     this.watcher = new EventWatcher(this.config, this.logger, this.state);
@@ -143,16 +152,19 @@ export class Solver {
       const registry = new ethers.Contract(
         this.config.solverRegistryAddress,
         [
-          'function registerSolver(string memory name, uint256 feeBps, uint256[] memory supportedChains) external returns (uint256)',
+          'function requiredBond() external view returns (uint256)',
+          'function registerSolver(string memory name, uint256 feeBps, uint256[] memory supportedChains) external payable returns (uint256)',
           'function updateSupportedChains(uint256[] memory supportedChains) external',
           'function getSolverByAddress(address solver) external view returns (tuple(address solverAddress, string name, uint256 feeBps, bool active, uint256 registeredAt, uint256[] supportedChains))',
         ],
         wallet
       );
       try {
-        const tx = await registry.registerSolver(this.config.solverName, this.config.solverFeeBps, this.config.supportedChains);
+        const requiredBond = await registry.requiredBond();
+        const bond = this.config.solverBondAmount ?? requiredBond;
+        const tx = await registry.registerSolver(this.config.solverName, this.config.solverFeeBps, this.config.supportedChains, { value: bond });
         await tx.wait();
-        this.logger.info(`Registered solver ${this.config.solverName} with fee ${this.config.solverFeeBps} bps`);
+        this.logger.info(`Registered solver ${this.config.solverName} with fee ${this.config.solverFeeBps} bps and bond ${bond.toString()}`);
         return;
       } catch (error: any) {
         if (!error.message?.includes('already registered')) {
@@ -294,14 +306,14 @@ export class Solver {
         });
         this.logger.info(`Fulfilled ${intent.intentId}: ${result.txHash}`);
 
-        if (intent.sourceChainId !== intent.destChainId && this.config.bridgeAddress) {
+        if (intent.sourceChainId !== intent.destChainId && (this.config.bridgeAddress || this.config.lzBridgeAddress)) {
           await this.rebalanceCrossChain(intent);
         }
       } else {
         if (result.error?.includes('already fulfilled') || result.error?.includes('not open')) {
           this.state.markCompleted(intent.intentId);
           this.logger.info(`Intent ${intent.intentId} already fulfilled`);
-          if (intent.sourceChainId !== intent.destChainId && this.config.bridgeAddress) {
+          if (intent.sourceChainId !== intent.destChainId && (this.config.bridgeAddress || this.config.lzBridgeAddress)) {
             const recordedSolver = await this.getRecordedSolver(intent.intentId);
             if (recordedSolver?.toLowerCase() === this.submitter.getAddress().toLowerCase()) {
               await this.rebalanceCrossChain(intent);
@@ -467,7 +479,8 @@ export class Solver {
   }
 
   private async rebalanceCrossChain(intent: IntentEvent): Promise<void> {
-    if (intent.sourceChainId === intent.destChainId || !this.config.bridgeAddress) return;
+    if (intent.sourceChainId === intent.destChainId) return;
+    if (!this.config.bridgeAddress && !this.config.lzBridgeAddress) return;
 
     const hasSourceTokens = await this.inventory.hasSufficientBalance(
       intent.sourceChainId,
@@ -488,23 +501,47 @@ export class Solver {
       this.logger.info(
         `Rebalancing cross-chain intent ${intent.intentId}: bridging ${intent.sourceAmount} ${intent.sourceToken} from chain ${intent.sourceChainId} to chain ${intent.destChainId}`
       );
-      await this.approveToken(intent.sourceToken, this.config.bridgeAddress, intent.sourceAmount, sourceWallet);
-      const bridgeTxHash = await this.bridgeSourceTokens(
-        intent.intentId,
-        intent.sourceToken,
-        intent.sourceAmount,
-        intent.destChainId,
-        sourceWallet
-      );
 
-      this.state.logDecision({
-        timestamp: Date.now(),
-        intentId: intent.intentId,
-        decision: 'succeeded',
-        reason: `Rebalanced via MockBridge`,
-        metadata: bridgeTxHash,
-      });
-      this.logger.info(`Rebalanced ${intent.intentId} via MockBridge: ${bridgeTxHash}`);
+      if (this.config.lzBridgeAddress && this.lzBridgeAdapter) {
+        const quote = await this.lzBridgeAdapter.quoteCrossChain(
+          intent.sourceChainId,
+          intent.destChainId,
+          intent.sourceToken,
+          intent.destToken,
+          intent.sourceAmount
+        );
+        await this.approveToken(intent.sourceToken, this.config.lzBridgeAddress, intent.sourceAmount, sourceWallet);
+        const tx = await this.lzBridgeAdapter.executeBridge(quote, sourceWallet);
+        if (!tx) {
+          throw new Error('LayerZero bridge adapter returned no transaction');
+        }
+        await tx.wait();
+        this.state.logDecision({
+          timestamp: Date.now(),
+          intentId: intent.intentId,
+          decision: 'succeeded',
+          reason: `Rebalanced via IntentLZBridge`,
+          metadata: tx.hash,
+        });
+        this.logger.info(`Rebalanced ${intent.intentId} via IntentLZBridge: ${tx.hash}`);
+      } else if (this.config.bridgeAddress) {
+        await this.approveToken(intent.sourceToken, this.config.bridgeAddress, intent.sourceAmount, sourceWallet);
+        const bridgeTxHash = await this.bridgeSourceTokens(
+          intent.intentId,
+          intent.sourceToken,
+          intent.sourceAmount,
+          intent.destChainId,
+          sourceWallet
+        );
+        this.state.logDecision({
+          timestamp: Date.now(),
+          intentId: intent.intentId,
+          decision: 'succeeded',
+          reason: `Rebalanced via MockBridge`,
+          metadata: bridgeTxHash,
+        });
+        this.logger.info(`Rebalanced ${intent.intentId} via MockBridge: ${bridgeTxHash}`);
+      }
     } catch (error: any) {
       this.logger.warn(`Rebalance failed for ${intent.intentId}: ${error.message}`);
     }

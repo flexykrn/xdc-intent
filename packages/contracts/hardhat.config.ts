@@ -59,11 +59,19 @@ const config: HardhatUserConfig = {
         : [],
       gasPrice: parseInt(process.env.GAS_PRICE_GWEI || '25') * 1e9,
     },
+    sepolia: {
+      chainId: 11155111,
+      url: process.env.SEPOLIA_RPC_URL || 'https://rpc.sepolia.org',
+      accounts: process.env.DEPLOYER_PRIVATE_KEY && process.env.DEPLOYER_PRIVATE_KEY !== '0x...'
+        ? [process.env.DEPLOYER_PRIVATE_KEY]
+        : [],
+    },
   },
   etherscan: {
     apiKey: {
       xdc: process.env.ETHERSCAN_API_KEY || '',
       apothem: process.env.ETHERSCAN_API_KEY || '',
+      sepolia: process.env.ETHERSCAN_API_KEY || '',
     },
     customChains: [
       {
