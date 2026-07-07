@@ -101,6 +101,119 @@ The Dashboard includes an in-app faucet. Click **Mint 1000** next to MUSDC or MX
 | Solver B metrics | `http://localhost:3003/metrics` |
 | Frontend API stats | `http://localhost:3000/api/stats` |
 
+## LayerZero Testnet Cross-Chain E2E
+
+This section documents how to run a real cross-chain intent over LayerZero testnet infrastructure, using **Sepolia** as the source chain and **Arbitrum Sepolia** as the destination chain.
+
+### Prerequisites
+
+1. A funded Sepolia ETH wallet (deployer/user).
+2. A funded Arbitrum Sepolia ETH wallet (same deployer/user; solver wallet also needs gas on Sepolia).
+3. A second private key for the solver.
+4. RPC URLs for Sepolia and Arbitrum Sepolia (Infura/Alchemy public RPCs work).
+
+### Faucets
+
+- **Sepolia ETH**: https://sepoliafaucet.com (Infura), https://faucet.quicknode.com/ethereum/sepolia, or Alchemy Sepolia faucet.
+- **Arbitrum Sepolia ETH**: https://faucet.quicknode.com/arbitrum/sepolia or bridge Sepolia ETH via the [Arbitrum Sepolia bridge](https://bridge.arbitrum.io/?l2ChainId=421614).
+
+### Required Environment Variables
+
+Add to `packages/contracts/.env` (and root `.env`):
+
+```bash
+DEPLOYER_PRIVATE_KEY=0x...
+SOLVER_PRIVATE_KEY=0x...
+SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/YOUR_INFURA_KEY
+ARBITRUM_SEPOLIA_RPC_URL=https://arbitrum-sepolia.infura.io/v3/YOUR_INFURA_KEY
+ETHERSCAN_API_KEY=...
+ARBISCAN_API_KEY=...
+```
+
+### Deploy the Testnet Stack
+
+```bash
+cd packages/contracts
+npx hardhat run scripts/deploy-lz-testnet-stack.ts --network sepolia
+```
+
+This deploys:
+- On Sepolia: MockUSDC, MockXDC, SimpleDEX (factory/router/pair), Escrow, PaymentVerifier, SolverRegistry, IntentRegistry, IntentLZBridge.
+- On Arbitrum Sepolia: MockUSDC, IntentLZBridge.
+- Configures trusted remotes between the two bridges.
+- Writes all addresses to `packages/contracts/deployments/lz-testnet.json`.
+
+The script is idempotent: if `lz-testnet.json` exists, it reuses existing deployments.
+
+### Run the Cross-Chain E2E
+
+```bash
+cd packages/contracts
+npx hardhat run scripts/run-lz-e2e.ts --network sepolia
+```
+
+The E2E script:
+1. Mints test MockUSDC on Sepolia and Arbitrum Sepolia for the user and solver.
+2. Creates a cross-chain intent (Sepolia USDC -> Arbitrum Sepolia USDC).
+3. Fulfills the intent and releases source tokens to the solver.
+4. Solver calls `bridgeOut` on the Sepolia IntentLZBridge, paying LayerZero fees in ETH.
+5. Polls Arbitrum Sepolia until the destination bridge delivers the tokens.
+6. Verifies the user's Arbitrum Sepolia MockUSDC balance increased.
+
+### Expected Output
+
+```
+Intent ID: 0x...
+Submitted: 0x...
+Fulfilled by: 0x...
+BridgeOut: 0x...
+PASS: Destination balance increased. LayerZero cross-chain intent completed.
+```
+
+### Troubleshooting
+
+#### "insufficient funds for intrinsic transaction cost"
+Fund the deployer and solver wallets with Sepolia ETH and Arbitrum Sepolia ETH.
+
+#### "IntentLZBridge: peer not set"
+Run the deploy script first to configure trusted remotes.
+
+#### "IntentLZBridge: insufficient fee"
+The bridgeOut call did not include enough ETH for the LayerZero fee. The E2E script quotes the fee automatically; raise the buffer if gas prices spike.
+
+#### LayerZero delivery takes too long
+Real testnet delivery can take 1-10 minutes depending on DVN/executor congestion. The E2E script polls for up to 10 minutes. Check the bridgeOut transaction on [LayerZero Scan](https://layerzeroscan.com/) using the Sepolia bridgeOut tx hash.
+
+#### "PaymentVerifier: not facilitator"
+The IntentRegistry must be registered as a facilitator in PaymentVerifier. The deploy script does this automatically.
+
+#### "IntentRegistry: solver not registered"
+Set `SOLVER_PRIVATE_KEY` before running the deploy script so it registers the solver, or manually call `SolverRegistry.registerSolver`.
+
+### Running the Full Solver + Middleware Stack (Optional)
+
+To run the live solver stack instead of the scripted E2E:
+
+1. Update `packages/solver/.env.solver-a`:
+   ```bash
+   RPC_URL=https://sepolia.infura.io/v3/YOUR_INFURA_KEY
+   CHAIN_ID=11155111
+   ESCROW_ADDRESS=<from lz-testnet.json>
+   PAYMENT_VERIFIER_ADDRESS=<from lz-testnet.json>
+   INTENT_REGISTRY_ADDRESS=<from lz-testnet.json>
+   SOLVER_REGISTRY_ADDRESS=<from lz-testnet.json>
+   LZ_BRIDGE_ADDRESS=<Sepolia IntentLZBridge from lz-testnet.json>
+   SUPPORTED_CHAINS=11155111,421614
+   CHAIN_RPC_URLS={"11155111":"https://sepolia.infura.io/v3/YOUR_INFURA_KEY","421614":"https://arbitrum-sepolia.infura.io/v3/YOUR_INFURA_KEY"}
+   ROUTER_ADDRESS=<Sepolia SimpleDEXRouter from lz-testnet.json>
+   ```
+2. Start the middleware and solver:
+   ```bash
+   npm run dev -w @xdc-intent/middleware
+   npm run dev:a -w @xdc-intent/solver
+   ```
+3. Create an intent from the frontend or by adapting `scripts/run-lz-e2e.ts` to skip the scripted fulfillment step.
+
 ## Verification Commands
 
 ```bash
@@ -125,6 +238,10 @@ npx hardhat run scripts/e2e-quote-competition.ts --network apothem
 # Cross-chain E2E
 cd packages/contracts
 npx hardhat run scripts/e2e-cross-chain.ts --network apothem
+
+# LayerZero testnet E2E
+cd packages/contracts
+npx hardhat run scripts/run-lz-e2e.ts --network sepolia
 
 # One-command automated demo (Windows PowerShell)
 npm run demo:e2e

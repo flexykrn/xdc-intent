@@ -88,6 +88,10 @@ coverage.json
 # Bridge keeper runtime state
 packages/contracts/deployments/bridge-keeper-state.json
 
+# LayerZero testnet deployment artifact (generated per run; addresses can be shared manually)
+packages/contracts/deployments/lz-testnet.json
+packages/dex/deployments/sepolia.json
+
 # Demo/keeper logs
 *.err
 

@@ -3,6 +3,7 @@ export const CHAIN_IDS = {
   XDC_APOTHEM: 51,
   HARDHAT: 31337,
   SEPOLIA: 11155111,
+  ARBITRUM_SEPOLIA: 421614,
 } as const;
 
 export const CAIP2: Record<number, string> = {
@@ -10,6 +11,7 @@ export const CAIP2: Record<number, string> = {
   [CHAIN_IDS.XDC_APOTHEM]: 'eip155:51',
   [CHAIN_IDS.HARDHAT]: 'eip155:31337',
   [CHAIN_IDS.SEPOLIA]: 'eip155:11155111',
+  [CHAIN_IDS.ARBITRUM_SEPOLIA]: 'eip155:421614',
 };
 
 export const CONTRACT_ADDRESSES: Record<

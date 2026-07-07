@@ -66,12 +66,20 @@ const config: HardhatUserConfig = {
         ? [process.env.DEPLOYER_PRIVATE_KEY]
         : [],
     },
+    arbitrumSepolia: {
+      chainId: 421614,
+      url: process.env.ARBITRUM_SEPOLIA_RPC_URL || 'https://sepolia-rollup.arbitrum.io/rpc',
+      accounts: process.env.DEPLOYER_PRIVATE_KEY && process.env.DEPLOYER_PRIVATE_KEY !== '0x...'
+        ? [process.env.DEPLOYER_PRIVATE_KEY]
+        : [],
+    },
   },
   etherscan: {
     apiKey: {
       xdc: process.env.ETHERSCAN_API_KEY || '',
       apothem: process.env.ETHERSCAN_API_KEY || '',
       sepolia: process.env.ETHERSCAN_API_KEY || '',
+      arbitrumSepolia: process.env.ARBISCAN_API_KEY || '',
     },
     customChains: [
       {
@@ -88,6 +96,14 @@ const config: HardhatUserConfig = {
         urls: {
           apiURL: 'https://api-testnet.xdcscan.com/api',
           browserURL: 'https://testnet.xdcscan.com',
+        },
+      },
+      {
+        network: 'arbitrumSepolia',
+        chainId: 421614,
+        urls: {
+          apiURL: 'https://api-sepolia.arbiscan.io/api',
+          browserURL: 'https://sepolia.arbiscan.io',
         },
       },
     ],

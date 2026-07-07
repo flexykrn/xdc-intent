@@ -35,6 +35,20 @@ const config: HardhatUserConfig = {
         : [],
       gasPrice: parseInt(process.env.GAS_PRICE_GWEI || '25') * 1e9,
     },
+    sepolia: {
+      chainId: 11155111,
+      url: process.env.SEPOLIA_RPC_URL || 'https://rpc.sepolia.org',
+      accounts: process.env.DEPLOYER_PRIVATE_KEY && process.env.DEPLOYER_PRIVATE_KEY !== '0x...'
+        ? [process.env.DEPLOYER_PRIVATE_KEY]
+        : [],
+    },
+    arbitrumSepolia: {
+      chainId: 421614,
+      url: process.env.ARBITRUM_SEPOLIA_RPC_URL || 'https://sepolia-rollup.arbitrum.io/rpc',
+      accounts: process.env.DEPLOYER_PRIVATE_KEY && process.env.DEPLOYER_PRIVATE_KEY !== '0x...'
+        ? [process.env.DEPLOYER_PRIVATE_KEY]
+        : [],
+    },
   },
   paths: {
     sources: './contracts',
