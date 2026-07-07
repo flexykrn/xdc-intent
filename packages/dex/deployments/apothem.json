@@ -1,0 +1,14 @@
+{
+  "network": "apothem",
+  "chainId": 51,
+  "tokens": {
+    "MockUSDC": "0x86530A99784D188e8343e119140114d9e5fD0546",
+    "MockXDC": "0xfe4E746cA450C46Fe6Ede5EAc184A7F2082B2312"
+  },
+  "dex": {
+    "factory": "0x342d081a46F0E26602c6547718a21b37825E9782",
+    "router": "0xc8B08Ac4CDa23A3737Fe7D0C4BD94d58F0fEfa0c",
+    "pair": "0xE73bAAd441069fAE0181cd1A94f7DCa4f9A18161"
+  },
+  "timestamp": "2026-07-07T00:00:00.000Z"
+}

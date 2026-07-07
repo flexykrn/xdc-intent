@@ -88,6 +88,10 @@ coverage.json
 # Demo/keeper logs
 *.err
 
+# Subgraph generated code
+packages/subgraph/generated/
+packages/subgraph/build/
+
 # Conversation/docs scratchpad
 .hermes/
 .herm/

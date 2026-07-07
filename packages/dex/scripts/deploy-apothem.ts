@@ -1,9 +1,10 @@
 import { ethers } from 'hardhat';
+import fs from 'fs';
+import path from 'path';
 
 const MOCK_USDC = process.env.MOCK_USDC || '0x86530A99784D188e8343e119140114d9e5fD0546';
 const MOCK_XDC = process.env.MOCK_XDC || '0xfe4E746cA450C46Fe6Ede5EAc184A7F2082B2312';
-const USDC_LIQUIDITY = ethers.parseUnits('10000', 6);
-const XDC_LIQUIDITY = ethers.parseEther('200000');
+const DEPLOYMENT_FILE = process.env.DEPLOYMENT_FILE || path.join(__dirname, '..', 'deployments', 'apothem.json');
 
 const ERC20_ABI = [
   'function transfer(address to, uint value) external returns (bool)',
@@ -22,6 +23,16 @@ async function main() {
   const [deployer] = await ethers.getSigners();
   console.log('Deploying SimpleDEX with account:', deployer.address);
 
+  const usdc = await ethers.getContractAt(ERC20_ABI, MOCK_USDC);
+  const wxdc = await ethers.getContractAt(ERC20_ABI, MOCK_XDC);
+
+  const usdcDecimals = await usdc.decimals();
+  const xdcDecimals = await wxdc.decimals();
+  console.log(`Token decimals — MockUSDC: ${usdcDecimals}, MockXDC: ${xdcDecimals}`);
+
+  const USDC_LIQUIDITY = ethers.parseUnits('10000', usdcDecimals);
+  const XDC_LIQUIDITY = ethers.parseUnits('200000', xdcDecimals);
+
   const SimpleDEXFactory = await ethers.getContractFactory('SimpleDEXFactory');
   const factory = await SimpleDEXFactory.deploy();
   await factory.waitForDeployment();
@@ -33,9 +44,6 @@ async function main() {
   await router.waitForDeployment();
   const routerAddress = await router.getAddress();
   console.log('Router deployed to:', routerAddress);
-
-  const usdc = await ethers.getContractAt(ERC20_ABI, MOCK_USDC);
-  const wxdc = await ethers.getContractAt(ERC20_ABI, MOCK_XDC);
 
   const tokenA = MOCK_USDC.toLowerCase() < MOCK_XDC.toLowerCase() ? MOCK_USDC : MOCK_XDC;
   const tokenB = MOCK_USDC.toLowerCase() < MOCK_XDC.toLowerCase() ? MOCK_XDC : MOCK_USDC;
@@ -49,12 +57,15 @@ async function main() {
   const pair = await ethers.getContractAt(PAIR_ABI, pairAddress);
 
   console.log('Seeding liquidity...');
-  const usdcAmount = MOCK_USDC.toLowerCase() < MOCK_XDC.toLowerCase() ? USDC_LIQUIDITY : XDC_LIQUIDITY;
-  const xdcAmount = MOCK_USDC.toLowerCase() < MOCK_XDC.toLowerCase() ? XDC_LIQUIDITY : USDC_LIQUIDITY;
+  const amountA = tokenA === MOCK_USDC ? USDC_LIQUIDITY : XDC_LIQUIDITY;
+  const amountB = tokenB === MOCK_USDC ? USDC_LIQUIDITY : XDC_LIQUIDITY;
 
-  tx = await usdc.transfer(pairAddress, usdcAmount);
+  const tokenAContract = tokenA === MOCK_USDC ? usdc : wxdc;
+  const tokenBContract = tokenB === MOCK_USDC ? usdc : wxdc;
+
+  tx = await tokenAContract.transfer(pairAddress, amountA);
   await tx.wait();
-  tx = await wxdc.transfer(pairAddress, xdcAmount);
+  tx = await tokenBContract.transfer(pairAddress, amountB);
   await tx.wait();
 
   tx = await pair.sync();
@@ -66,8 +77,28 @@ async function main() {
     reserve1: reserves[1].toString(),
   });
 
-  const quoted = await router.getAmountsOut(ethers.parseUnits('10', 6), [MOCK_USDC, MOCK_XDC]);
+  const quoted = await router.getAmountsOut(ethers.parseUnits('10', usdcDecimals), [MOCK_USDC, MOCK_XDC]);
   console.log('Quote for 10 USDC -> XDC:', quoted[1].toString());
+
+  const deployment = {
+    network: 'apothem',
+    chainId: 51,
+    deployer: deployer.address,
+    tokens: {
+      MockUSDC: MOCK_USDC,
+      MockXDC: MOCK_XDC,
+    },
+    dex: {
+      factory: factoryAddress,
+      router: routerAddress,
+      pair: pairAddress,
+    },
+    timestamp: new Date().toISOString(),
+  };
+
+  fs.mkdirSync(path.dirname(DEPLOYMENT_FILE), { recursive: true });
+  fs.writeFileSync(DEPLOYMENT_FILE, JSON.stringify(deployment, null, 2));
+  console.log('Deployment file written to:', DEPLOYMENT_FILE);
 
   console.log('\n=== Deployment Summary ===');
   console.log('Factory:', factoryAddress);

@@ -20,6 +20,8 @@ This runbook covers operating the XDC Intent Framework on XDC Apothem testnet.
 
 Explorer: https://testnet.xdcscan.com
 
+Canonical deployment metadata is tracked in [`packages/contracts/deployments/apothem.json`](../packages/contracts/deployments/apothem.json). DEX-specific addresses are also mirrored in [`packages/dex/deployments/apothem.json`](../packages/dex/deployments/apothem.json).
+
 ## Environment Setup
 
 1. Copy root `.env.example` to `.env` and fill:
@@ -104,6 +106,10 @@ npm run build
 
 # Contract tests
 cd packages/contracts
+npx hardhat test
+
+# DEX tests
+cd packages/dex
 npx hardhat test
 
 # Two-solver quote competition E2E

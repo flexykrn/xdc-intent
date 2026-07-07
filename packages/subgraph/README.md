@@ -2,32 +2,46 @@
 
 ## Overview
 
-Graph Protocol subgraph for indexing XDC Intent Framework events.
+Graph Protocol subgraph for indexing XDC Intent Framework events on the Apothem testnet.
+
+## Deployed Contracts (Apothem)
+
+- **IntentRegistry**: `0x441f5e07E6FC807E73454B4318ba487e05e65625`
+- **Escrow**: `0x5c6fb5D7E81e11C303e5cE00fBE7AE748a47690d`
+- **PaymentVerifier**: `0x6Ce223bD961217917aa16654E77A6A440f35A70A`
+- **SolverRegistry**: `0x4F87a92E3950ec53AFC1776F14Af33c6E9aab360`
+- **MockBridge**: `0xB494122Fb840D928d0f0F98E69985a85E9EBC139`
 
 ## Entities
 
-- **Intent** - Individual trading intents
+- **Intent** - Individual cross-chain trading intents
 - **User** - Intent creators
-- **Solver** - Intent fulfillers
-- **Token** - Traded tokens
-- **Batch** - Auction batches
-- **Bid** - Solver bids
-- **EscrowLock/Release** - Token custody events
+- **Solver** - Registered intent fulfillers
+- **Token** - Source/destination tokens
+- **EscrowLock** - Tokens locked in escrow
+- **EscrowRelease** - Tokens released to solver or refunded to user
 - **DailyStats** - Aggregated daily metrics
 
 ## Setup
 
 ```bash
 # Install dependencies
-npm install -g @graphprotocol/graph-cli
+npm install
 
-# Generate code from schema
-graph codegen
+# Generate code from schema and ABIs
+npm run codegen
 
 # Build
-graph build
+npm run build
 
-# Deploy to The Graph
+# Run smoke test (codegen + build)
+npm run test
+```
+
+## Deploy
+
+```bash
+# Deploy to The Graph Hosted Service
 graph deploy --node https://api.thegraph.com/deploy/ --ipfs https://api.thegraph.com/ipfs/ flexykrn/xdc-intent
 ```
 
@@ -35,26 +49,23 @@ graph deploy --node https://api.thegraph.com/deploy/ --ipfs https://api.thegraph
 
 ```bash
 # Start local graph node
-docker-compose up
-
-# Create subgraph
-graph create --node http://localhost:8020/ flexykrn/xdc-intent
-
-# Deploy
-graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 flexykrn/xdc-intent
+npm run create-local
+npm run deploy-local
 ```
 
 ## Query Examples
 
 ```graphql
-# Get all pending intents
+# Get all open intents
 {
-  intents(where: { status: Pending }) {
+  intents(where: { status: Open }) {
     id
     user { id }
-    token { id symbol }
-    amount
-    expiryTimestamp
+    sourceToken { id symbol }
+    destToken { id symbol }
+    sourceAmount
+    minDestAmount
+    expiry
   }
 }
 
@@ -62,9 +73,10 @@ graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 flexykrn
 {
   solvers(orderBy: totalVolume, orderDirection: desc) {
     id
+    name
+    active
     totalFulfilled
     totalVolume
-    reputationScore
   }
 }
 
@@ -75,6 +87,7 @@ graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 flexykrn
     totalIntents
     totalFulfilled
     totalVolume
+    totalFulfilledAmount
   }
 }
 ```

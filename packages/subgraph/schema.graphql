@@ -1,71 +1,67 @@
+enum IntentStatus {
+  Open
+  Fulfilled
+  Cancelled
+}
+
 type Intent @entity {
   id: ID!                          # intentId (bytes32 as hex string)
-  user: User!                     # who created the intent
-  solver: Solver                   # who fulfilled it (null if pending)
-  token: Token!                    # token being traded
-  amount: BigInt!                  # amount of tokens
-  protocolFee: BigInt!             # fee charged
-  expiryTimestamp: BigInt!        # when it expires
-  status: IntentStatus!           # Pending, Fulfilled, Cancelled, Expired
-  paymentProofHash: Bytes         # hash of payment proof
-  createdAt: BigInt!              # block timestamp
-  fulfilledAt: BigInt            # when fulfilled (null if pending)
-  batch: Batch                   # if part of a batch
+  user: User!                      # who created the intent
+  sourceChainId: BigInt            # source chain id from intent params
+  sourceToken: Token!              # token locked in escrow
+  sourceAmount: BigInt!            # amount locked
+  destChainId: BigInt              # destination chain id from intent params
+  destToken: Token!                # desired destination token
+  minDestAmount: BigInt!           # minimum acceptable destination amount
+  maxSolverFee: BigInt             # max solver fee from intent params
+  expiry: BigInt!                  # intent expiry timestamp
+  nonce: BigInt                    # user nonce from intent params
+  signature: Bytes                 # user signature
+  allowedSolvers: [String!]!       # allowed solver addresses (empty if none)
+  status: IntentStatus!            # Open, Fulfilled, Cancelled
+  solver: Solver                   # solver that fulfilled (null if open)
+  fulfilledAmount: BigInt          # actual destination amount (fulfillment)
+  paymentTxHash: Bytes             # x402 payment tx hash (fulfillment)
+  createdAt: BigInt!               # block timestamp at submission
+  fulfilledAt: BigInt              # block timestamp at fulfillment
+  cancelledAt: BigInt              # block timestamp at cancellation
+  escrowLock: EscrowLock @derivedFrom(field: "intent")
+  escrowReleases: [EscrowRelease!]! @derivedFrom(field: "intent")
 }
 
 type User @entity {
-  id: ID!                         # address
+  id: ID!                          # address
   intents: [Intent!]! @derivedFrom(field: "user")
   totalIntents: BigInt!
   totalFulfilled: BigInt!
   totalCancelled: BigInt!
-  totalExpired: BigInt!
-  totalVolume: BigInt!            # sum of all intent amounts
+  totalVolume: BigInt!             # sum of source amounts
 }
 
 type Solver @entity {
-  id: ID!                         # address
-  intents: [Intent!]! @derivedFrom(field: "solver")
-  isRegistered: Boolean!
-  reputationScore: BigInt!        # based on fill rate, speed, price improvement
+  id: ID!                          # address
+  solverId: BigInt                 # on-chain solver id
+  name: String                     # solver name
+  feeBps: BigInt                   # solver fee in basis points
+  supportedChains: [BigInt!]!      # supported destination chain ids
+  active: Boolean!                 # registered and active
   totalFulfilled: BigInt!
-  totalVolume: BigInt!            # sum of fulfilled amounts
-  averageFillTime: BigInt!        # average time from creation to fulfillment
-  slashedAmount: BigInt!          # total slashed
+  totalVolume: BigInt!             # sum of fulfilled source amounts
+  intents: [Intent!]! @derivedFrom(field: "solver")
 }
 
 type Token @entity {
-  id: ID!                         # address
-  symbol: String!                 # token symbol
-  name: String!                   # token name
-  decimals: Int!                # token decimals
-  totalIntents: BigInt!
-  totalVolume: BigInt!
-}
-
-type Batch @entity {
-  id: ID!                         # batchId
-  intents: [Intent!]!             # intents in this batch
-  tokens: [Token!]!               # unique tokens in batch
-  winningSolver: Solver            # winning solver
-  winningBid: BigInt!             # price improvement in bps
-  createdAt: BigInt!
-  auctionEndTime: BigInt!
-  status: BatchStatus!            # Open, Closed, Settled, Cancelled
-  bids: [Bid!]! @derivedFrom(field: "batch")
-}
-
-type Bid @entity {
-  id: ID!                         # batchId-solverAddress
-  batch: Batch!
-  solver: Solver!
-  priceImprovementBps: BigInt!
-  bidProof: Bytes
-  createdAt: BigInt!
+  id: ID!                          # address
+  symbol: String!
+  name: String!
+  decimals: Int!
+  totalIntents: BigInt!            # intents using this token as source
+  totalVolume: BigInt!             # source amounts locked
+  sourceIntents: [Intent!]! @derivedFrom(field: "sourceToken")
 }
 
 type EscrowLock @entity {
-  id: ID!                         # intentId
+  id: ID!                          # intentId
   intent: Intent!
   token: Token!
   amount: BigInt!
@@ -74,37 +70,32 @@ type EscrowLock @entity {
 }
 
 type EscrowRelease @entity {
-  id: ID!                         # intentId-release
+  id: ID!                          # intentId-release|refund
   intent: Intent!
   token: Token!
   amount: BigInt!
-  solver: Solver!
+  recipient: User!                 # solver on release, user on refund
   releasedAt: BigInt!
+  kind: String!                    # "release" or "refund"
 }
 
 type DailyStats @entity {
-  id: ID!                         # YYYY-MM-DD
+  id: ID!                          # YYYY-MM-DD
   date: String!
   totalIntents: BigInt!
   totalFulfilled: BigInt!
   totalCancelled: BigInt!
-  totalExpired: BigInt!
-  totalVolume: BigInt!
-  totalProtocolFees: BigInt!
+  totalVolume: BigInt!             # sum of source amounts submitted
+  totalFulfilledAmount: BigInt!    # sum of dest amounts fulfilled
   uniqueUsers: BigInt!
   uniqueSolvers: BigInt!
 }
 
-enum IntentStatus {
-  Pending
-  Fulfilled
-  Cancelled
-  Expired
+# Internal helper entities for per-day unique counts.
+type UserDay @entity {
+  id: ID!                          # date-address
 }
 
-enum BatchStatus {
-  Open
-  Closed
-  Settled
-  Cancelled
+type SolverDay @entity {
+  id: ID!                          # date-address
 }

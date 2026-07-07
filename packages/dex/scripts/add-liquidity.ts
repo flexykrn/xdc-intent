@@ -1,50 +1,65 @@
 import { ethers } from 'hardhat';
+import fs from 'fs';
+import path from 'path';
+
+const DEPLOYMENT_FILE = process.env.DEPLOYMENT_FILE || path.join(__dirname, '..', 'deployments', 'apothem.json');
+
+const ERC20_ABI = [
+  'function approve(address spender, uint value) external returns (bool)',
+  'function transfer(address to, uint value) external returns (bool)',
+  'function balanceOf(address owner) external view returns (uint)',
+  'function decimals() external view returns (uint8)',
+];
 
 async function main() {
   const [deployer] = await ethers.getSigners();
   console.log('Adding liquidity with account:', deployer.address);
 
-  const CONTRACTS = {
-    tokenA: '0x85D09e7A4332B4bF969661461C8C251D13d63043',
-    tokenB: '0xc36296e2b0ff183FA90FFD95DeC9b919a81527a3',
-    factory: '0xa18a69a9a7Bbe60A842175F6c88c79f1679d4706',
-    router: '0x118c80107B5819D0c6f8e7c8CB19D397dB323E93',
-    pair: '0x69a11E9E8528AE9bECeDa1366Ed77206ADEe02bE',
-  };
+  if (!fs.existsSync(DEPLOYMENT_FILE)) {
+    throw new Error(`Deployment file not found: ${DEPLOYMENT_FILE}`);
+  }
 
-  // Get contracts
-  const tokenA = await ethers.getContractAt('TestToken', CONTRACTS.tokenA);
-  const tokenB = await ethers.getContractAt('TestToken', CONTRACTS.tokenB);
+  const deployment = JSON.parse(fs.readFileSync(DEPLOYMENT_FILE, 'utf8'));
+  const { MockUSDC, MockXDC } = deployment.tokens;
+  const { pair } = deployment.dex;
 
-  // Approve tokens for pair
+  console.log('Using MockUSDC:', MockUSDC);
+  console.log('Using MockXDC:', MockXDC);
+  console.log('Using pair:', pair);
+
+  const usdc = await ethers.getContractAt(ERC20_ABI, MockUSDC);
+  const wxdc = await ethers.getContractAt(ERC20_ABI, MockXDC);
+
+  const usdcDecimals = await usdc.decimals();
+  const xdcDecimals = await wxdc.decimals();
+
+  const amountUSDC = ethers.parseUnits('100000', usdcDecimals);
+  const amountXDC = ethers.parseUnits('100000', xdcDecimals);
+
   console.log('Approving tokens...');
-  const amountA = ethers.parseEther('100000');
-  const amountB = ethers.parseEther('100000');
-  
-  await (await tokenA.approve(CONTRACTS.pair, amountA)).wait();
-  await (await tokenB.approve(CONTRACTS.pair, amountB)).wait();
+  await (await usdc.approve(pair, amountUSDC)).wait();
+  await (await wxdc.approve(pair, amountXDC)).wait();
   console.log('Tokens approved');
 
-  // Transfer tokens to pair
   console.log('Transferring tokens to pair...');
-  await (await tokenA.transfer(CONTRACTS.pair, amountA)).wait();
-  await (await tokenB.transfer(CONTRACTS.pair, amountB)).wait();
+  await (await usdc.transfer(pair, amountUSDC)).wait();
+  await (await wxdc.transfer(pair, amountXDC)).wait();
   console.log('Tokens transferred');
 
-  // Sync pair to update reserves
-  const pairAbi = ['function sync() external'];
-  const pair = new ethers.Contract(CONTRACTS.pair, pairAbi, deployer);
+  const pairAbi = [
+    'function sync() external',
+    'function getReserves() external view returns (uint112, uint112, uint32)',
+  ];
+  const pairContract = new ethers.Contract(pair, pairAbi, deployer);
+
   console.log('Syncing pair...');
-  await (await pair.sync()).wait();
+  await (await pairContract.sync()).wait();
   console.log('Pair synced');
 
-  // Check reserves
-  const reservesAbi = ['function getReserves() external view returns (uint112, uint112, uint32)'];
-  const pairWithReserves = new ethers.Contract(CONTRACTS.pair, reservesAbi, deployer);
-  const reserves = await pairWithReserves.getReserves();
+  const reserves = await pairContract.getReserves();
   console.log('Reserves:', {
-    reserve0: ethers.formatEther(reserves[0]),
-    reserve1: ethers.formatEther(reserves[1]),
+    reserve0: ethers.formatUnits(reserves[0], usdcDecimals),
+    reserve1: ethers.formatUnits(reserves[1], xdcDecimals),
   });
 
   console.log('\n=== Liquidity Added Successfully ===');
