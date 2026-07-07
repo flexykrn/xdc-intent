@@ -5,6 +5,7 @@ import PageContainer from "@/components/PageContainer";
 import { StatCard, SectionHeader, Badge, TokenSymbol, LoadingState } from "@/components/ui";
 import { formatTokenAmount, tokenSymbol, chainName, TOKENS, parseTokenAmount } from "@/lib/tokens";
 import { useIntents, useStats } from "@/lib/hooks";
+import { useSubgraphDashboard } from "@/lib/subgraph";
 import { ethers } from "ethers";
 import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
@@ -15,8 +16,23 @@ import { ArrowRight, Plus, LayoutGrid, Activity, Wallet, AlertCircle, Droplets, 
 
 export default function DashboardPage() {
   const { isConnected, address, signer } = useWallet();
-  const { intents, isLoading: intentsLoading } = useIntents();
-  const { stats, isLoading: statsLoading } = useStats();
+
+  const subgraphUrl = process.env.NEXT_PUBLIC_SUBGRAPH_URL;
+  const {
+    intents: subgraphIntents,
+    stats: subgraphStats,
+    isLoading: subgraphLoading,
+    error: subgraphError,
+  } = useSubgraphDashboard(Boolean(subgraphUrl));
+  const useSubgraph = Boolean(subgraphUrl) && !subgraphError;
+
+  const { intents: rpcIntents, isLoading: rpcIntentsLoading } = useIntents();
+  const { stats: rpcStats, isLoading: rpcStatsLoading } = useStats();
+
+  const intents = useSubgraph ? subgraphIntents : rpcIntents;
+  const stats = useSubgraph ? subgraphStats : rpcStats;
+  const loading = useSubgraph ? subgraphLoading : rpcIntentsLoading || rpcStatsLoading;
+
   const [balances, setBalances] = useState<Record<string, string>>({});
   const [minting, setMinting] = useState<string | null>(null);
 
@@ -71,8 +87,6 @@ export default function DashboardPage() {
     const interval = setInterval(fetchBalances, 10000);
     return () => clearInterval(interval);
   }, [fetchBalances]);
-
-  const loading = intentsLoading || statsLoading;
 
   return (
     <PageContainer>

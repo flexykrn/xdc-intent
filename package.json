@@ -22,6 +22,7 @@
     "clean": "turbo run clean",
     "dev": "turbo run dev --parallel",
     "demo": "concurrently \"npm run dev -w @xdc-intent/middleware\" \"npm run dev:a -w @xdc-intent/solver\" \"npm run dev:b -w @xdc-intent/solver\" \"npm run dev -w frontend\" --names middleware,solver-a,solver-b,frontend --prefix-colors auto",
+    "demo:e2e": "powershell -ExecutionPolicy Bypass -File scripts/demo-e2e.ps1",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish"

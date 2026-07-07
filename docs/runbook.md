@@ -125,6 +125,9 @@ npx hardhat run scripts/e2e-quote-competition.ts --network apothem
 # Cross-chain E2E
 cd packages/contracts
 npx hardhat run scripts/e2e-cross-chain.ts --network apothem
+
+# One-command automated demo (Windows PowerShell)
+npm run demo:e2e
 ```
 
 ## Demo Transaction History
@@ -141,6 +144,8 @@ npx hardhat run scripts/e2e-cross-chain.ts --network apothem
 | Cross-chain (2026-07-07) | `0xd93ef9e7...98e5080` | `0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe` | `199.00` MXDC | `0x3c378b57...48739dc6` | `0xb643a6d4...d0ee57a` |
 | Same-chain (2026-07-07) | `0xb6d8d766...fc90795e` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `200.00` MXDC | `0xe8c788c0...f2b7d301` | â€” |
 | Cross-chain Beta 88888 (2026-07-07) | `0xd777be92...bb5585e1` | `0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe` | `199.00` MXDC | `0x8eeb8e57...aa1053e9` | `0x8554ad5e...64a8eace1` |
+| Same-chain (2026-07-07) | `0x196478c8...d0435214` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `200.00` MXDC | `0x335882e6...0d259684` | â€” |
+| Cross-chain Alpha 99999 (2026-07-07) | `0xfa5ef1a3...562233e3e` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `199.00` MXDC | `0x9e6b3093...2b069eaff` | `0x8dc04f95...ea1fdc51` |
 
 **Note:** `IntentRegistry.fulfillIntent` now accepts an explicit `solver` parameter. The middleware passes the actual winning solver address, so on-chain `solver` matches the off-chain quote winner and source tokens are released to the solver.
 

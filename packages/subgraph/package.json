@@ -7,6 +7,8 @@
     "codegen": "graph codegen",
     "build": "graph codegen && graph build",
     "deploy": "graph deploy --node https://api.thegraph.com/deploy/ --ipfs https://api.thegraph.com/ipfs/ flexykrn/xdc-intent",
+    "deploy:studio": "graph codegen && graph build && graph deploy --studio xdc-intent",
+    "deploy:goldsky": "graph codegen && graph build && goldsky subgraph deploy xdc-intent/v0.0.1 --path .",
     "create-local": "graph create --node http://localhost:8020/ flexykrn/xdc-intent",
     "remove-local": "graph remove --node http://localhost:8020/ flexykrn/xdc-intent",
     "deploy-local": "graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 flexykrn/xdc-intent",

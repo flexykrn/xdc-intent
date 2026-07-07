@@ -40,9 +40,19 @@ npm run test
 
 ## Deploy
 
+See [DEPLOY.md](./DEPLOY.md) for step-by-step instructions on deploying to **The Graph Studio** or **Goldsky**.
+
+Convenience scripts:
+
 ```bash
-# Deploy to The Graph Hosted Service
-graph deploy --node https://api.thegraph.com/deploy/ --ipfs https://api.thegraph.com/ipfs/ flexykrn/xdc-intent
+# Build the subgraph
+npm run build
+
+# Deploy to The Graph Studio (requires prior `graph auth --studio`)
+npm run deploy:studio
+
+# Deploy to Goldsky (requires prior `goldsky login`)
+npm run deploy:goldsky
 ```
 
 ## Local Development

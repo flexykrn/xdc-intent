@@ -3,7 +3,7 @@ import request from 'supertest';
 import { ethers } from 'ethers';
 import * as store from '../src/store';
 import * as eip3009 from '../src/eip3009';
-import { app } from '../src/app';
+import * as appModule from '../src/app';
 
 vi.mock('../src/store', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/store')>();
@@ -30,6 +30,10 @@ vi.mock('../src/eip3009', async (importOriginal) => {
 });
 
 const apiKey = 'testnet2024';
+const validIntentId = '0x' + '12'.repeat(32);
+const invalidIntentId = '0x123';
+const validSolver = ethers.getAddress('0x0000000000000000000000000000000000000001');
+const validSolver2 = ethers.getAddress('0x0000000000000000000000000000000000000002');
 
 function buildPaymentPayload(solverAddress: string, amount = '100'): { header: string; payload: any } {
   const payload = {
@@ -41,7 +45,7 @@ function buildPaymentPayload(solverAddress: string, amount = '100'): { header: s
       amount,
       payTo: '0xfacilitator000000000000000000000000000000',
       maxTimeoutSeconds: 600,
-      extra: { intentId: '0x123', tokenName: 'Mock USDC', tokenVersion: '1' },
+      extra: { intentId: validIntentId, tokenName: 'Mock USDC', tokenVersion: '1' },
     },
     payload: {
       authorization: {
@@ -60,55 +64,134 @@ function buildPaymentPayload(solverAddress: string, amount = '100'): { header: s
 }
 
 describe('Middleware API', () => {
+  describe('Request ID tracing', () => {
+    it('propagates X-Request-ID header', async () => {
+      const res = await request(appModule.app).get('/health').set('X-Request-ID', 'test-req-123');
+      expect(res.headers['x-request-id']).toBe('test-req-123');
+    });
+
+    it('generates X-Request-ID when not provided', async () => {
+      const res = await request(appModule.app).get('/health');
+      expect(res.headers['x-request-id']).toBeDefined();
+      expect(typeof res.headers['x-request-id']).toBe('string');
+      expect(res.headers['x-request-id']).not.toBe('');
+    });
+  });
+
   describe('Health Check', () => {
-    it('should return 200 OK', async () => {
-      const res = await request(app).get('/health');
-      expect([200, 503]).toContain(res.status);
-      expect(res.body).toHaveProperty('status');
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('should return 200 OK when all dependencies are healthy', async () => {
+      vi.spyOn(appModule.healthChecks, 'checkRpcProvider').mockResolvedValue({ name: 'rpc', status: 'ok', detail: 'block 12345' });
+      vi.spyOn(appModule.healthChecks, 'checkContractDependency')
+        .mockResolvedValueOnce({ name: 'intentRegistry', status: 'ok' })
+        .mockResolvedValueOnce({ name: 'paymentVerifier', status: 'ok' });
+
+      const res = await request(appModule.app).get('/health');
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('ok');
       expect(res.body).toHaveProperty('timestamp');
+      expect(res.body.dependencies).toHaveProperty('rpc');
+      expect(res.body.dependencies).toHaveProperty('intentRegistry');
+      expect(res.body.dependencies).toHaveProperty('paymentVerifier');
+      expect(res.body.dependencies.rpc).toBe('ok');
+    });
+
+    it('should return 503 with details when dependencies are degraded', async () => {
+      vi.spyOn(appModule.healthChecks, 'checkRpcProvider').mockResolvedValue({ name: 'rpc', status: 'degraded', detail: 'network disconnected' });
+      vi.spyOn(appModule.healthChecks, 'checkContractDependency')
+        .mockResolvedValueOnce({ name: 'intentRegistry', status: 'degraded', detail: 'call failed' })
+        .mockResolvedValueOnce({ name: 'paymentVerifier', status: 'degraded', detail: 'call failed' });
+
+      const res = await request(appModule.app).get('/health');
+      expect(res.status).toBe(503);
+      expect(res.body.status).toBe('degraded');
+      expect(res.body.dependencies.rpc).toMatchObject({ status: 'degraded', detail: 'network disconnected' });
+      expect(res.body.dependencies.intentRegistry).toMatchObject({ status: 'degraded' });
+      expect(res.body.dependencies.paymentVerifier).toMatchObject({ status: 'degraded' });
     });
   });
 
   describe('Quote endpoints', () => {
     it('GET /v1/intents/:intentId/quotes returns empty quotes list', async () => {
-      const res = await request(app).get('/v1/intents/0x123/quotes');
+      const res = await request(appModule.app).get(`/v1/intents/${validIntentId}/quotes`);
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({ intentId: '0x123', quotes: [] });
+      expect(res.body).toEqual({ intentId: validIntentId, quotes: [] });
     });
 
     it('POST /v1/quotes rejects missing API key', async () => {
-      const res = await request(app).post('/v1/quotes').send({});
+      const res = await request(appModule.app).post('/v1/quotes').send({});
       expect(res.status).toBe(401);
     });
 
-    it('POST /v1/quotes with API key validates body', async () => {
-      const res = await request(app)
+    it('POST /v1/quotes rejects invalid intentId', async () => {
+      const res = await request(appModule.app)
         .post('/v1/quotes')
         .set('X-API-Key', apiKey)
-        .send({ intentId: '0x123', solverAddress: '0x0000000000000000000000000000000000000001', outputAmount: '1000' });
-      expect([400, 404, 500]).toContain(res.status);
+        .send({ intentId: invalidIntentId, solverAddress: validSolver, outputAmount: '1000', signature: '0x00' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('intentId');
+    });
+
+    it('POST /v1/quotes rejects non-checksummed solverAddress', async () => {
+      const res = await request(appModule.app)
+        .post('/v1/quotes')
+        .set('X-API-Key', apiKey)
+        .send({ intentId: validIntentId, solverAddress: '0x000000000000000000000000000000000000000a', outputAmount: '1000', signature: '0x00' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('solverAddress');
+    });
+
+    it('POST /v1/quotes rejects non-positive outputAmount', async () => {
+      const res = await request(appModule.app)
+        .post('/v1/quotes')
+        .set('X-API-Key', apiKey)
+        .send({ intentId: validIntentId, solverAddress: validSolver, outputAmount: '0', signature: '0x00' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('outputAmount');
+    });
+
+    it('POST /v1/quotes with API key validates body', async () => {
+      vi.mocked(store.getIntentDetails).mockRejectedValue(new Error('not found'));
+      const res = await request(appModule.app)
+        .post('/v1/quotes')
+        .set('X-API-Key', apiKey)
+        .send({ intentId: validIntentId, solverAddress: validSolver, outputAmount: '1000', signature: '0x00' });
+      expect([404, 500]).toContain(res.status);
     });
   });
 
   describe('x402 Payment endpoints', () => {
     beforeEach(() => {
-      store.clearQuotes('0x123');
+      store.clearQuotes(validIntentId);
       vi.clearAllMocks();
     });
 
     afterEach(() => {
       vi.restoreAllMocks();
-      store.clearQuotes('0x123');
+      store.clearQuotes(validIntentId);
     });
 
     it('GET /v1/intents/:intentId/payment-required returns 402, 404, or 500', async () => {
-      const res = await request(app).get('/v1/intents/0x123/payment-required');
+      const res = await request(appModule.app).get(`/v1/intents/${validIntentId}/payment-required`);
       expect([402, 404, 500]).toContain(res.status);
     });
 
+    it('POST /v1/intents/:intentId/settle rejects invalid intentId', async () => {
+      const res = await request(appModule.app)
+        .post(`/v1/intents/${invalidIntentId}/settle`)
+        .set('X-API-Key', apiKey)
+        .set('payment-signature', 'header')
+        .send({});
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('intentId');
+    });
+
     it('POST /v1/intents/:intentId/settle rejects missing PAYMENT-SIGNATURE header', async () => {
-      const res = await request(app)
-        .post('/v1/intents/0x123/settle')
+      const res = await request(appModule.app)
+        .post(`/v1/intents/${validIntentId}/settle`)
         .set('X-API-Key', apiKey)
         .send({});
       expect(res.status).toBe(402);
@@ -116,11 +199,10 @@ describe('Middleware API', () => {
     });
 
     it('POST /v1/intents/:intentId/settle rejects solver not in allowedSolvers', async () => {
-      const solver = '0x0000000000000000000000000000000000000001';
-      const { header } = buildPaymentPayload(solver);
+      const { header } = buildPaymentPayload(validSolver);
 
       vi.mocked(store.getIntentDetails).mockResolvedValue({
-        intentId: '0x123',
+        intentId: validIntentId,
         status: 0,
         user: '0xuser000000000000000000000000000000000000',
         sourceChainId: 50,
@@ -132,14 +214,14 @@ describe('Middleware API', () => {
         maxSolverFee: '100',
         expiry: 9999999999,
         nonce: '1',
-        allowedSolvers: ['0x0000000000000000000000000000000000000002'],
+        allowedSolvers: [validSolver2],
         solver: ethers.ZeroAddress,
         fulfilledAmount: '0',
         paymentTxHash: ethers.ZeroHash,
       } as any);
 
-      const res = await request(app)
-        .post('/v1/intents/0x123/settle')
+      const res = await request(appModule.app)
+        .post(`/v1/intents/${validIntentId}/settle`)
         .set('X-API-Key', apiKey)
         .set('payment-signature', header)
         .send({});
@@ -149,11 +231,10 @@ describe('Middleware API', () => {
     });
 
     it('POST /v1/intents/:intentId/settle rejects unregistered solver', async () => {
-      const solver = '0x0000000000000000000000000000000000000001';
-      const { header } = buildPaymentPayload(solver);
+      const { header } = buildPaymentPayload(validSolver);
 
       vi.mocked(store.getIntentDetails).mockResolvedValue({
-        intentId: '0x123',
+        intentId: validIntentId,
         status: 0,
         user: '0xuser000000000000000000000000000000000000',
         sourceChainId: 50,
@@ -173,8 +254,8 @@ describe('Middleware API', () => {
       vi.mocked(store.isAllowedSolver).mockReturnValue(true);
       vi.mocked(store.isSolverRegisteredAndSupportsChain).mockResolvedValue(false);
 
-      const res = await request(app)
-        .post('/v1/intents/0x123/settle')
+      const res = await request(appModule.app)
+        .post(`/v1/intents/${validIntentId}/settle`)
         .set('X-API-Key', apiKey)
         .set('payment-signature', header)
         .send({});
@@ -184,11 +265,10 @@ describe('Middleware API', () => {
     });
 
     it('POST /v1/intents/:intentId/settle rejects solver without winning quote', async () => {
-      const solver = '0x0000000000000000000000000000000000000001';
-      const { header } = buildPaymentPayload(solver);
+      const { header } = buildPaymentPayload(validSolver);
 
       vi.mocked(store.getIntentDetails).mockResolvedValue({
-        intentId: '0x123',
+        intentId: validIntentId,
         status: 0,
         user: '0xuser000000000000000000000000000000000000',
         sourceChainId: 50,
@@ -208,8 +288,8 @@ describe('Middleware API', () => {
       vi.mocked(store.isAllowedSolver).mockReturnValue(true);
       vi.mocked(store.isSolverRegisteredAndSupportsChain).mockResolvedValue(true);
 
-      const res = await request(app)
-        .post('/v1/intents/0x123/settle')
+      const res = await request(appModule.app)
+        .post(`/v1/intents/${validIntentId}/settle`)
         .set('X-API-Key', apiKey)
         .set('payment-signature', header)
         .send({});
@@ -219,12 +299,11 @@ describe('Middleware API', () => {
     });
 
     it('POST /v1/intents/:intentId/settle rejects invalid quote signature', async () => {
-      const solver = '0x0000000000000000000000000000000000000001';
-      const { header } = buildPaymentPayload(solver);
+      const { header } = buildPaymentPayload(validSolver);
 
       store.addQuote({
-        intentId: '0x123',
-        solverAddress: solver,
+        intentId: validIntentId,
+        solverAddress: validSolver,
         outputAmount: '950',
         feeBps: 30,
         signature: '0xbad',
@@ -232,7 +311,7 @@ describe('Middleware API', () => {
       });
 
       vi.mocked(store.getIntentDetails).mockResolvedValue({
-        intentId: '0x123',
+        intentId: validIntentId,
         status: 0,
         user: '0xuser000000000000000000000000000000000000',
         sourceChainId: 50,
@@ -253,8 +332,8 @@ describe('Middleware API', () => {
       vi.mocked(store.isSolverRegisteredAndSupportsChain).mockResolvedValue(true);
       vi.mocked(store.verifyQuoteSignature).mockReturnValue(false);
 
-      const res = await request(app)
-        .post('/v1/intents/0x123/settle')
+      const res = await request(appModule.app)
+        .post(`/v1/intents/${validIntentId}/settle`)
         .set('X-API-Key', apiKey)
         .set('payment-signature', header)
         .send({});
@@ -264,12 +343,11 @@ describe('Middleware API', () => {
     });
 
     it('POST /v1/intents/:intentId/settle rejects non-facilitator signer', async () => {
-      const solver = '0x0000000000000000000000000000000000000001';
-      const { header } = buildPaymentPayload(solver);
+      const { header } = buildPaymentPayload(validSolver);
 
       store.addQuote({
-        intentId: '0x123',
-        solverAddress: solver,
+        intentId: validIntentId,
+        solverAddress: validSolver,
         outputAmount: '950',
         feeBps: 30,
         signature: '0xgood',
@@ -277,7 +355,7 @@ describe('Middleware API', () => {
       });
 
       vi.mocked(store.getIntentDetails).mockResolvedValue({
-        intentId: '0x123',
+        intentId: validIntentId,
         status: 0,
         user: '0xuser000000000000000000000000000000000000',
         sourceChainId: 50,
@@ -299,8 +377,8 @@ describe('Middleware API', () => {
       vi.mocked(store.verifyQuoteSignature).mockReturnValue(true);
       vi.mocked(store.isFacilitator).mockResolvedValue(false);
 
-      const res = await request(app)
-        .post('/v1/intents/0x123/settle')
+      const res = await request(appModule.app)
+        .post(`/v1/intents/${validIntentId}/settle`)
         .set('X-API-Key', apiKey)
         .set('payment-signature', header)
         .send({});
@@ -310,14 +388,13 @@ describe('Middleware API', () => {
     });
 
     it('POST /v1/intents/:intentId/settle fulfills intent after successful EIP-3009 settlement', async () => {
-      const solver = '0x0000000000000000000000000000000000000001';
-      const { header } = buildPaymentPayload(solver);
+      const { header } = buildPaymentPayload(validSolver);
       const paymentTxHash = '0xpaymenttxhash0000000000000000000000000000000000000000000000000000';
       const fulfillTxHash = '0xfulfilltxhash0000000000000000000000000000000000000000000000000000';
 
       store.addQuote({
-        intentId: '0x123',
-        solverAddress: solver,
+        intentId: validIntentId,
+        solverAddress: validSolver,
         outputAmount: '950',
         feeBps: 30,
         signature: '0xgood',
@@ -325,7 +402,7 @@ describe('Middleware API', () => {
       });
 
       vi.mocked(store.getIntentDetails).mockResolvedValue({
-        intentId: '0x123',
+        intentId: validIntentId,
         status: 0,
         user: '0xuser000000000000000000000000000000000000',
         sourceChainId: 50,
@@ -356,15 +433,15 @@ describe('Middleware API', () => {
           amount: '100',
           payTo: '0xfacilitator000000000000000000000000000000',
           maxTimeoutSeconds: 600,
-          extra: { intentId: '0x123', tokenName: 'Mock USDC', tokenVersion: '1' },
+          extra: { intentId: validIntentId, tokenName: 'Mock USDC', tokenVersion: '1' },
         }],
       });
-      vi.mocked(eip3009.verifyEIP3009).mockResolvedValue({ isValid: true, payer: solver });
+      vi.mocked(eip3009.verifyEIP3009).mockResolvedValue({ isValid: true, payer: validSolver });
       vi.mocked(eip3009.settleEIP3009).mockResolvedValue({ success: true, transaction: paymentTxHash });
       vi.mocked(store.fulfillIntent).mockResolvedValue({ hash: fulfillTxHash } as any);
 
-      const res = await request(app)
-        .post('/v1/intents/0x123/settle')
+      const res = await request(appModule.app)
+        .post(`/v1/intents/${validIntentId}/settle`)
         .set('X-API-Key', apiKey)
         .set('payment-signature', header)
         .send({});
@@ -374,13 +451,13 @@ describe('Middleware API', () => {
       expect(res.body.transaction).toBe(paymentTxHash);
       expect(res.body.fulfillTransaction).toBe(fulfillTxHash);
       expect(res.body.destAmount).toBe('950');
-      expect(store.fulfillIntent).toHaveBeenCalledWith('0x123', '950', paymentTxHash, solver, expect.any(Object));
+      expect(store.fulfillIntent).toHaveBeenCalledWith(validIntentId, '950', paymentTxHash, validSolver, expect.any(Object));
     });
   });
 
   describe('Metrics', () => {
     it('should return metrics', async () => {
-      const res = await request(app).get('/v1/metrics');
+      const res = await request(appModule.app).get('/v1/metrics');
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('totalRequests');
       expect(res.body).toHaveProperty('proofsIssued');
@@ -395,7 +472,7 @@ describe('Middleware API', () => {
 
     it('GET /v1/intents/:intentId/bridge-status returns richer status', async () => {
       vi.mocked(store.getBridgeStatus).mockResolvedValue({
-        intentId: '0xbridge-test',
+        intentId: validIntentId,
         sourceChainId: 51,
         destChainId: 88888,
         state: 'locked',
@@ -409,7 +486,7 @@ describe('Middleware API', () => {
         updatedAt: Date.now(),
       });
 
-      const res = await request(app).get('/v1/intents/0xbridge-test/bridge-status');
+      const res = await request(appModule.app).get(`/v1/intents/${validIntentId}/bridge-status`);
       expect(res.status).toBe(200);
       expect(res.body.state).toBe('locked');
       expect(res.body.locked).toBe(true);

@@ -4,10 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Copy, LogOut, AlertTriangle } from "lucide-react";
 import { useWallet } from "@/components/providers";
 import XDCLogo from "@/components/icons/XDCLogo";
 import { truncateAddress } from "@/lib/utils";
+import toast from "react-hot-toast";
 
 const appLinks = [
   { label: "Dashboard", href: "/dashboard" },
@@ -22,7 +23,7 @@ const externalLinks = [
 ];
 
 export default function Navbar() {
-  const { isConnected, address, connect, disconnect } = useWallet();
+  const { isConnected, address, connect, disconnect, switchChain, isCorrectChain, isConnecting } = useWallet();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -38,6 +39,16 @@ export default function Navbar() {
   }, [pathname]);
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+
+  const handleCopy = async () => {
+    if (!address) return;
+    try {
+      await navigator.clipboard.writeText(address);
+      toast.success("Address copied");
+    } catch {
+      toast.error("Copy failed");
+    }
+  };
 
   return (
     <header
@@ -85,23 +96,52 @@ export default function Navbar() {
 
         <div className="flex items-center gap-2">
           {isConnected ? (
-            <motion.button
-              onClick={disconnect}
-              className="hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-full text-[12px] font-semibold surface-subtle text-[var(--ink)] hover:border-[var(--ink-2)] transition-colors"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--success)]" />
-              {truncateAddress(address, 4, 4)}
-            </motion.button>
+            <div className="hidden sm:flex items-center gap-2">
+              {!isCorrectChain ? (
+                <motion.button
+                  onClick={switchChain}
+                  disabled={isConnecting}
+                  className="flex items-center gap-2 px-3.5 py-2 rounded-full text-[12px] font-semibold bg-[var(--error)]/10 text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/20 transition-colors disabled:opacity-50"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  {isConnecting ? "Switching..." : "Switch to Apothem"}
+                </motion.button>
+              ) : (
+                <>
+                  <motion.button
+                    onClick={handleCopy}
+                    className="flex items-center gap-2 px-3.5 py-2 rounded-full text-[12px] font-semibold surface-subtle text-[var(--ink)] hover:border-[var(--ink-2)] transition-colors"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    title="Copy address"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--success)]" />
+                    {truncateAddress(address, 4, 4)}
+                    <Copy className="w-3.5 h-3.5 text-[var(--ink-3)]" />
+                  </motion.button>
+                  <motion.button
+                    onClick={disconnect}
+                    className="p-2 rounded-full surface-subtle text-[var(--ink-3)] hover:text-[var(--error)] hover:border-[var(--error)]/30 transition-colors"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    title="Disconnect"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </motion.button>
+                </>
+              )}
+            </div>
           ) : (
             <motion.button
               onClick={connect}
-              className="px-4 py-2 rounded-full text-[12px] font-semibold btn-primary"
+              disabled={isConnecting}
+              className="px-4 py-2 rounded-full text-[12px] font-semibold btn-primary disabled:opacity-50"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
-              Connect Wallet
+              {isConnecting ? "Connecting..." : "Connect Wallet"}
             </motion.button>
           )}
 
@@ -147,12 +187,43 @@ export default function Navbar() {
                   {link.label}
                 </a>
               ))}
-              {!isConnected && (
+              {isConnected ? (
+                <div className="pt-2 space-y-2">
+                  {!isCorrectChain ? (
+                    <button
+                      onClick={switchChain}
+                      disabled={isConnecting}
+                      className="w-full px-4 py-3 rounded-full text-sm font-semibold bg-[var(--error)]/10 text-[var(--error)] border border-[var(--error)]/20 disabled:opacity-50"
+                    >
+                      {isConnecting ? "Switching..." : "Switch to Apothem"}
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={handleCopy}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-full text-sm font-semibold surface-subtle text-[var(--ink)]"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-[var(--success)]" />
+                        {truncateAddress(address, 4, 4)}
+                        <Copy className="w-3.5 h-3.5 text-[var(--ink-3)]" />
+                      </button>
+                      <button
+                        onClick={disconnect}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-full text-sm font-semibold surface-subtle text-[var(--error)]"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        Disconnect
+                      </button>
+                    </>
+                  )}
+                </div>
+              ) : (
                 <button
                   onClick={connect}
-                  className="w-full mt-2 px-4 py-3 rounded-full text-sm font-semibold btn-primary"
+                  disabled={isConnecting}
+                  className="w-full mt-2 px-4 py-3 rounded-full text-sm font-semibold btn-primary disabled:opacity-50"
                 >
-                  Connect Wallet
+                  {isConnecting ? "Connecting..." : "Connect Wallet"}
                 </button>
               )}
             </div>

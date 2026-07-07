@@ -4,6 +4,7 @@ import { useWallet } from "@/components/providers";
 import PageContainer from "@/components/PageContainer";
 import { SectionHeader, TokenSymbol } from "@/components/ui";
 import { CHAINS, TOKENS, chainName, tokenSymbol, formatTokenAmount, parseTokenAmount } from "@/lib/tokens";
+import { ERC20_ABI, CONTRACTS } from "@/lib/contracts";
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ethers } from "ethers";
@@ -17,6 +18,8 @@ import {
   ArrowRightLeft,
   AlertCircle,
   TrendingUp,
+  Loader2,
+  ShieldCheck,
 } from "lucide-react";
 
 const expiryOptions = [
@@ -30,7 +33,7 @@ const expiryOptions = [
 const steps = ["Chain & Token", "Amounts", "Review"];
 
 export default function CreatePage() {
-  const { isConnected, sdk, address } = useWallet();
+  const { isConnected, isCorrectChain, sdk, address, provider, signer } = useWallet();
   const router = useRouter();
   const [step, setStep] = useState(0);
 
@@ -44,11 +47,15 @@ export default function CreatePage() {
   const [expiry, setExpiry] = useState("24h");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [estimatedOutput, setEstimatedOutput] = useState<string | null>(null);
+  const [approvalState, setApprovalState] = useState<"idle" | "checking" | "needed" | "approving" | "approved">("idle");
 
   const isCrossChain = sourceChainId !== destChainId;
 
   useEffect(() => {
-    if (!isConnected) return;
+    if (!isConnected || !isCorrectChain) {
+      setEstimatedOutput(null);
+      return;
+    }
     async function estimate() {
       if (!fromAmount || parseFloat(fromAmount) <= 0) {
         setEstimatedOutput(null);
@@ -64,7 +71,60 @@ export default function CreatePage() {
       }
     }
     estimate();
-  }, [fromAmount, fromToken, toToken, isConnected]);
+  }, [fromAmount, fromToken, toToken, isConnected, isCorrectChain]);
+
+  useEffect(() => {
+    if (!isConnected || !isCorrectChain || !provider || !address) {
+      setApprovalState("idle");
+      return;
+    }
+    if (step < 2) {
+      setApprovalState("idle");
+      return;
+    }
+
+    async function checkAllowance() {
+      if (fromToken.address === ethers.ZeroAddress) {
+        setApprovalState("approved");
+        return;
+      }
+      setApprovalState("checking");
+      try {
+        const token = new ethers.Contract(fromToken.address, ERC20_ABI, provider);
+        const escrowAddress = await sdk?.escrow.getAddress().catch(() => CONTRACTS.escrow) ?? CONTRACTS.escrow;
+        const allowance = await token.allowance(address, escrowAddress);
+        const required = parseTokenAmount(fromAmount || "0", fromToken.address);
+        setApprovalState(allowance >= required ? "approved" : "needed");
+      } catch {
+        setApprovalState("needed");
+      }
+    }
+    checkAllowance();
+  }, [isConnected, isCorrectChain, provider, address, fromToken, fromAmount, step, sdk]);
+
+  const preview = useMemo(() => {
+    if (!fromAmount || parseFloat(fromAmount) <= 0) return null;
+    const source = `${fromAmount} ${tokenSymbol(fromToken.address)}`;
+    const estimated = estimatedOutput ? formatTokenAmount(estimatedOutput, toToken.address) : null;
+    const fee = parseFloat(maxSolverFee || "0");
+    const min = parseFloat(minOutput || "0");
+    const estimatedNum = estimated ? parseFloat(estimated) : 0;
+    const net = Math.max(0, estimatedNum - fee);
+    const slippage = min > 0 && net > 0 ? ((net - min) / net) * 100 : 0;
+    return {
+      source,
+      sourceAmount: fromAmount,
+      sourceSymbol: tokenSymbol(fromToken.address),
+      estimated,
+      estimatedNum,
+      fee,
+      feeSymbol: tokenSymbol(toToken.address),
+      min,
+      minSymbol: tokenSymbol(toToken.address),
+      net,
+      slippage,
+    };
+  }, [fromAmount, fromToken, toToken, estimatedOutput, maxSolverFee, minOutput]);
 
   const canNext = useMemo(() => {
     if (step === 0) return sourceChainId && destChainId && fromToken && toToken;
@@ -75,6 +135,10 @@ export default function CreatePage() {
   const handleCreate = async () => {
     if (!isConnected || !sdk || !address) {
       toast.error("Please connect your wallet first");
+      return;
+    }
+    if (!isCorrectChain) {
+      toast.error("Please switch to XDC Apothem Testnet");
       return;
     }
 
@@ -88,6 +152,20 @@ export default function CreatePage() {
       const sourceAmount = parseTokenAmount(fromAmount, fromToken.address);
       const minDestAmount = parseTokenAmount(minOutput, toToken.address);
       const maxSolverFeeRaw = parseTokenAmount(maxSolverFee, toToken.address);
+      const escrowAddress = await sdk.escrow.getAddress();
+
+      if (fromToken.address !== ethers.ZeroAddress && approvalState !== "approved") {
+        toast.loading("Approving token...", { id: toastId });
+        setApprovalState("approving");
+        const token = new ethers.Contract(
+          fromToken.address,
+          ["function approve(address spender,uint256 amount) returns (bool)"],
+          signer || (sdk.escrow.runner as ethers.Signer)
+        );
+        const approveTx = await token.approve(escrowAddress, sourceAmount);
+        await approveTx.wait();
+        setApprovalState("approved");
+      }
 
       const params = {
         sourceChainId,
@@ -104,17 +182,6 @@ export default function CreatePage() {
 
       const signed = await sdk.signIntent(address, params);
 
-      if (fromToken.address !== ethers.ZeroAddress) {
-        toast.loading("Approving token...", { id: toastId });
-        const token = new ethers.Contract(
-          fromToken.address,
-          ["function approve(address spender,uint256 amount) returns (bool)"],
-          sdk.escrow.runner as ethers.Signer
-        );
-        const approveTx = await token.approve(await sdk.escrow.getAddress(), sourceAmount);
-        await approveTx.wait();
-      }
-
       const tx = await sdk.submitIntent(signed);
       toast.loading("Submitting to chain...", { id: toastId });
       await tx.wait();
@@ -124,6 +191,7 @@ export default function CreatePage() {
       const err = e instanceof Error ? e : new Error("Failed to create intent");
       console.error("Create intent failed", e);
       toast.error(err.message || "Failed to create intent", { id: toastId });
+      if (approvalState === "approving") setApprovalState("needed");
     } finally {
       setIsSubmitting(false);
     }
@@ -137,6 +205,19 @@ export default function CreatePage() {
           <Wallet className="w-12 h-12 text-[var(--accent)] mx-auto mb-5" />
           <p className="text-lg font-medium text-[var(--ink)] mb-2">Connect your wallet</p>
           <p className="text-[var(--ink-3)] mb-6">You need a wallet to create intents and approve tokens.</p>
+        </div>
+      </PageContainer>
+    );
+  }
+
+  if (!isCorrectChain) {
+    return (
+      <PageContainer>
+        <SectionHeader title="Create Intent" description="Define your swap and let solvers compete." />
+        <div className="rounded-3xl p-12 text-center surface">
+          <AlertCircle className="w-12 h-12 text-[var(--error)] mx-auto mb-5" />
+          <p className="text-lg font-medium text-[var(--ink)] mb-2">Wrong network</p>
+          <p className="text-[var(--ink-3)] mb-6">Please switch to XDC Apothem Testnet to create intents.</p>
         </div>
       </PageContainer>
     );
@@ -255,11 +336,15 @@ export default function CreatePage() {
                   </div>
                 </div>
 
+                {estimatedOutput && preview && (
+                  <SwapPreview preview={preview} />
+                )}
+
                 {estimatedOutput && (
                   <div className="p-4 rounded-xl bg-[var(--success)]/5 border border-[var(--success)]/20 flex items-center gap-3">
                     <TrendingUp className="w-5 h-5 text-[var(--success)] shrink-0" />
                     <div className="text-sm text-[var(--ink-2)]">
-                      Estimated DEX output: {" "}
+                      Estimated DEX output:{" "}
                       <span className="font-semibold text-[var(--ink)]">
                         {formatTokenAmount(estimatedOutput, toToken.address)} {tokenSymbol(toToken.address)}
                       </span>
@@ -290,6 +375,10 @@ export default function CreatePage() {
                   />
                 </div>
 
+                {preview && <SwapPreview preview={preview} />}
+
+                <ApprovalStep state={approvalState} tokenSymbol={tokenSymbol(fromToken.address)} amount={fromAmount} />
+
                 <div className="p-4 rounded-xl bg-[var(--warning)]/10 border border-[var(--warning)]/20 flex items-start gap-3">
                   <AlertCircle className="w-5 h-5 text-[var(--warning)] shrink-0 mt-0.5" />
                   <div className="text-sm text-[var(--ink-2)]">
@@ -300,11 +389,11 @@ export default function CreatePage() {
             )}
           </AnimatePresence>
 
-          <div className="mt-8 pt-6 border-t border-[var(--border)] flex items-center justify-between">
+          <div className="mt-8 pt-6 border-t border-[var(--border)] flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <button
               onClick={() => setStep(Math.max(0, step - 1))}
               disabled={step === 0 || isSubmitting}
-              className="px-5 py-2.5 rounded-full text-sm font-semibold btn-secondary disabled:opacity-50 flex items-center gap-2"
+              className="px-5 py-2.5 rounded-full text-sm font-semibold btn-secondary disabled:opacity-50 flex items-center justify-center gap-2 w-full sm:w-auto"
             >
               <ChevronLeft size={16} /> Back
             </button>
@@ -313,7 +402,7 @@ export default function CreatePage() {
               <button
                 onClick={() => setStep(step + 1)}
                 disabled={!canNext}
-                className="px-5 py-2.5 rounded-full text-sm font-semibold btn-primary disabled:opacity-50 flex items-center gap-2"
+                className="px-5 py-2.5 rounded-full text-sm font-semibold btn-primary disabled:opacity-50 flex items-center justify-center gap-2 w-full sm:w-auto"
               >
                 Next <ChevronRight size={16} />
               </button>
@@ -321,12 +410,17 @@ export default function CreatePage() {
               <button
                 onClick={handleCreate}
                 disabled={isSubmitting}
-                className="px-6 py-2.5 rounded-full text-sm font-semibold btn-primary disabled:opacity-50 flex items-center gap-2"
+                className="px-6 py-2.5 rounded-full text-sm font-semibold btn-primary disabled:opacity-50 flex items-center justify-center gap-2 w-full sm:w-auto"
               >
                 {isSubmitting ? (
-                  <>Creating...</>
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {approvalState === "approving" ? "Approving..." : "Creating..."}
+                  </>
                 ) : (
-                  <>Create Intent <Check size={16} /></>
+                  <>
+                    Create Intent <Check size={16} />
+                  </>
                 )}
               </button>
             )}
@@ -416,6 +510,92 @@ function ReviewRow({ label, value, last = false }: { label: string; value: React
     <div className={`flex items-center justify-between px-5 py-4 ${!last ? "border-b border-[var(--border)]" : ""}`}>
       <span className="text-sm text-[var(--ink-3)]">{label}</span>
       <span className="text-sm font-semibold text-[var(--ink)]">{value}</span>
+    </div>
+  );
+}
+
+interface PreviewData {
+  source: string;
+  sourceAmount: string;
+  sourceSymbol: string;
+  estimated: string | null;
+  estimatedNum: number;
+  fee: number;
+  feeSymbol: string;
+  min: number;
+  minSymbol: string;
+  net: number;
+  slippage: number;
+}
+
+function SwapPreview({ preview }: { preview: PreviewData }) {
+  return (
+    <div className="rounded-2xl bg-[var(--bg-3)] border border-[var(--border)] overflow-hidden">
+      <div className="px-5 py-4 border-b border-[var(--border)] flex items-center gap-2">
+        <TrendingUp className="w-4 h-4 text-[var(--accent)]" />
+        <span className="text-sm font-semibold text-[var(--ink)]">Swap preview</span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-[var(--border)]">
+        <PreviewItem label="You send" value={preview.source} />
+        <PreviewItem
+          label="Estimated received"
+          value={preview.estimated ? `${preview.estimated} ${preview.feeSymbol}` : "—"}
+          sub={preview.estimated ? "before solver fee" : undefined}
+        />
+        <PreviewItem label="Max solver fee" value={`${preview.fee} ${preview.feeSymbol}`} />
+        <PreviewItem
+          label="Minimum received"
+          value={`${preview.min} ${preview.minSymbol}`}
+          sub={preview.slippage > 0 ? `${preview.slippage.toFixed(2)}% slippage buffer` : undefined}
+        />
+        <div className="sm:col-span-2 px-5 py-4 bg-[var(--bg-2)] flex items-center justify-between">
+          <span className="text-sm text-[var(--ink-3)]">Net estimated destination</span>
+          <span className="text-lg font-semibold text-[var(--ink)] font-mono-nums">
+            {preview.net.toLocaleString(undefined, { maximumFractionDigits: 6 })} {preview.feeSymbol}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreviewItem({ label, value, sub }: { label: string; value: React.ReactNode; sub?: string }) {
+  return (
+    <div className="px-5 py-4 bg-[var(--bg-2)]">
+      <div className="text-[11px] text-[var(--ink-3)] mb-1">{label}</div>
+      <div className="text-sm font-semibold text-[var(--ink)]">{value}</div>
+      {sub && <div className="text-[10px] text-[var(--ink-3)] mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+function ApprovalStep({ state, tokenSymbol, amount }: { state: string; tokenSymbol: string; amount: string }) {
+  if (state === "idle" || state === "checking") return null;
+
+  const isApproved = state === "approved";
+  return (
+    <div
+      className={`p-4 rounded-xl border flex items-start gap-3 ${
+        isApproved
+          ? "bg-[var(--success)]/5 border-[var(--success)]/20"
+          : "bg-[var(--accent)]/5 border-[var(--accent)]/20"
+      }`}
+    >
+      {isApproved ? (
+        <ShieldCheck className="w-5 h-5 text-[var(--success)] shrink-0 mt-0.5" />
+      ) : (
+        <AlertCircle className="w-5 h-5 text-[var(--accent)] shrink-0 mt-0.5" />
+      )}
+      <div className="flex-1">
+        <div className="text-sm font-medium text-[var(--ink)]">
+          {isApproved ? "Token approved" : "Approval required"}
+        </div>
+        <div className="text-sm text-[var(--ink-2)]">
+          {isApproved
+            ? `The Escrow contract is approved to spend ${amount} ${tokenSymbol}.`
+            : `You will need to approve the Escrow contract to spend ${amount} ${tokenSymbol} before creating the intent.`}
+        </div>
+      </div>
     </div>
   );
 }
