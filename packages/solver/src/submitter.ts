@@ -13,7 +13,7 @@ export class TransactionSubmitter {
     this.signer = new ethers.Wallet(config.privateKey, this.provider);
 
     const abi = [
-      'function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash) external returns (bool)',
+      'function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash, address solver) external returns (bool)',
       'function getIntent(bytes32 intentId) external view returns (tuple(bytes32 intentId, address user, uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, bytes signature, address[] allowedSolvers, uint8 status, address solver, uint256 fulfilledAmount, bytes32 paymentTxHash))',
     ];
     this.contract = new ethers.Contract(config.intentRegistryAddress, abi, this.signer);
@@ -32,10 +32,11 @@ export class TransactionSubmitter {
       }
 
       const nonce = await this.getNonce();
-      const gasEstimate = await this.contract.fulfillIntent.estimateGas(intentId, destAmount, paymentTxHash);
+      const solverAddress = this.signer.address;
+      const gasEstimate = await this.contract.fulfillIntent.estimateGas(intentId, destAmount, paymentTxHash, solverAddress);
       const gasLimit = (gasEstimate * 120n) / 100n;
 
-      const tx = await this.contract.fulfillIntent(intentId, destAmount, paymentTxHash, {
+      const tx = await this.contract.fulfillIntent(intentId, destAmount, paymentTxHash, solverAddress, {
         gasLimit,
         nonce,
       });

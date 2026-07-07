@@ -1,4 +1,4 @@
-# XDC Intent Framework — Runbook
+﻿# XDC Intent Framework â€” Runbook
 
 ## Overview
 This runbook covers operating the XDC Intent Framework on XDC Apothem testnet.
@@ -7,7 +7,7 @@ This runbook covers operating the XDC Intent Framework on XDC Apothem testnet.
 
 | Contract | Address |
 |---|---|
-| IntentRegistry | `0x441f5e07E6FC807E73454B4318ba487e05e65625` |
+| IntentRegistry | `0xfe1887C1686cF54d83107DAf7Ad7F5A5Ea95419b` |
 | Escrow | `0x5c6fb5D7E81e11C303e5cE00fBE7AE748a47690d` |
 | PaymentVerifier | `0x6Ce223bD961217917aa16654E77A6A440f35A70A` |
 | SolverRegistry | `0x4F87a92E3950ec53AFC1776F14Af33c6E9aab360` |
@@ -52,19 +52,19 @@ MOCK_BRIDGE_ADDRESS=0xB494122Fb840D928d0f0F98E69985a85E9EBC139 npx hardhat run s
 ### Manual startup
 
 ```bash
-# Terminal 1 — Middleware
+# Terminal 1 â€” Middleware
 npm run build -w @xdc-intent/middleware
 npm start -w @xdc-intent/middleware
 
-# Terminal 2 — Solver A
+# Terminal 2 â€” Solver A
 npm run build -w @xdc-intent/solver
 npm run start:a -w @xdc-intent/solver
 
-# Terminal 3 — Solver B (competition)
+# Terminal 3 â€” Solver B (competition)
 npm run build -w @xdc-intent/solver
 npm run start:b -w @xdc-intent/solver
 
-# Terminal 4 — Frontend
+# Terminal 4 â€” Frontend
 npm run dev -w frontend
 ```
 
@@ -78,7 +78,7 @@ npm run dev -w frontend
 | My Intents | http://localhost:3000/my-intents | Track your intents, detail drawer, status timeline, bridge status |
 | AI Agent Demo | http://localhost:3000/agent-demo | Chat interface that parses swaps and watches fulfillment |
 
-Data on Dashboard, Market, and My Intents refreshes automatically every 3–10 seconds via SWR polling.
+Data on Dashboard, Market, and My Intents refreshes automatically every 3â€“10 seconds via SWR polling.
 
 ## Testnet Faucet
 
@@ -125,14 +125,16 @@ npx hardhat run scripts/e2e-cross-chain.ts --network apothem
 
 | Run | Intent ID | Winner | Fulfilled Amount | Payment Tx | Bridge Mint Tx |
 |---|---|---|---|---|---|
-| Two-solver competition (2026-07-06) | `0x97e290cb...f1525a7d` | `0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe` | `1974.32` MXDC | — | — |
-| Cross-chain (2026-07-06) | `0xe921dac5...4133a219` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `198.21` MXDC | — | — |
-| AI agent demo (2026-07-06) | `0xbe165976f566fc509aae1a382347d218edd2c10e5623869b3a40828e15af5939` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `219.78` MXDC | `0x9465e9b4228f71361f3051c4d7096212614dfa6c8169a6f2adc8e0496a3423e5` | — |
+| Two-solver competition (2026-07-06) | `0x97e290cb...f1525a7d` | `0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe` | `1974.32` MXDC | â€” | â€” |
+| Cross-chain (2026-07-06) | `0xe921dac5...4133a219` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `198.21` MXDC | â€” | â€” |
+| AI agent demo (2026-07-06) | `0xbe165976f566fc509aae1a382347d218edd2c10e5623869b3a40828e15af5939` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `219.78` MXDC | `0x9465e9b4228f71361f3051c4d7096212614dfa6c8169a6f2adc8e0496a3423e5` | â€” |
 | Cross-chain (2026-07-07) | `0x247a2a3d...b4554951` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `199.00` MXDC | `0x72094194...2f0efa4f` | `0x3d19ed9d...76648f7` |
-| Same-chain (2026-07-07) | `0xbd5188b2...e8b3e578` | `0x9f629D06...34AE1e16` | `200.00` MXDC | `0x3b8dbd79...dfdde6ed` | — |
-| Cross-chain (2026-07-07) | `0xfcfa747e...a6e49f5` | `0x9f629D06...34AE1e16` | `199.00` MXDC | `0x63c1193f...ee9fbb6` | — |
+| Same-chain (2026-07-07) | `0xbd5188b2...e8b3e578` | `0x9f629D06...34AE1e16` | `200.00` MXDC | `0x3b8dbd79...dfdde6ed` | â€” |
+| Cross-chain (2026-07-07) | `0xfcfa747e...a6e49f5` | `0x9f629D06...34AE1e16` | `199.00` MXDC | `0x63c1193f...ee9fbb6` | â€” |
+| Same-chain (2026-07-07) | `0x6b48dbd8...0c651003` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `200.00` MXDC | `0xd2d7fd35...c98938df` | â€” |
+| Cross-chain (2026-07-07) | `0xd93ef9e7...98e5080` | `0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe` | `199.00` MXDC | `0x3c378b57...48739dc6` | `0xb643a6d4...d0ee57a` |
 
-**Note:** The on-chain `winner` in the latest two rows is the middleware facilitator signer (`0x9f629D06...34AE1e16`) because the middleware currently calls `IntentRegistry.fulfillIntent` with its own key. The actual winning solver is selected off-chain from the best quote.
+**Note:** `IntentRegistry.fulfillIntent` now accepts an explicit `solver` parameter. The middleware passes the actual winning solver address, so on-chain `solver` matches the off-chain quote winner and source tokens are released to the solver.
 
 ## AI Agent Demo
 
@@ -154,10 +156,10 @@ The agent demo at `/agent-demo` lets a user type a natural-language swap request
 
 ### Flow
 
-1. **Describe swap** — LLM/local parser returns `inputToken`, `inputAmount`, `outputToken`, `minDestAmount`, `maxSolverFee`.
-2. **Create intent** — Frontend approves the Escrow to spend MockUSDC and calls `IntentRegistry.submitIntent`.
-3. **Quote competition** — Solvers A and B submit off-chain quotes to the middleware.
-4. **Wait for fulfillment** — The best quote wins, the solver pays the middleware via x402 EIP-3009, and `IntentRegistry.fulfillIntent` is called on-chain.
+1. **Describe swap** â€” LLM/local parser returns `inputToken`, `inputAmount`, `outputToken`, `minDestAmount`, `maxSolverFee`.
+2. **Create intent** â€” Frontend approves the Escrow to spend MockUSDC and calls `IntentRegistry.submitIntent`.
+3. **Quote competition** â€” Solvers A and B submit off-chain quotes to the middleware.
+4. **Wait for fulfillment** â€” The best quote wins, the solver pays the middleware via x402 EIP-3009, and `IntentRegistry.fulfillIntent` is called on-chain.
 
 ## Troubleshooting
 

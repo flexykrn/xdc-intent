@@ -235,10 +235,14 @@ export class XDCIntentSDK {
   async fulfillIntent(
     intentId: string,
     destAmount: bigint,
-    paymentTxHash: string
+    paymentTxHash: string,
+    solver?: string
   ): Promise<ethers.TransactionResponse> {
     await this.checkChainId();
-    return this.submitWithRetry(() => this.intentRegistry.fulfillIntent(intentId, destAmount, paymentTxHash));
+    const solverAddress = solver || (await this.signer!.getAddress());
+    return this.submitWithRetry(() =>
+      this.intentRegistry.fulfillIntent(intentId, destAmount, paymentTxHash, solverAddress)
+    );
   }
 
   async getIntent(intentId: string): Promise<Intent> {
@@ -441,7 +445,7 @@ const PaymentVerifierABI = [
 
 const IntentRegistryABI = [
   'function submitIntent(tuple(uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, address[] allowedSolvers) intent, bytes signature) external returns (bytes32)',
-  'function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash) external returns (bool)',
+  'function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash, address solver) external returns (bool)',
   'function cancelIntent(bytes32 intentId) external',
   'function cancelExpiredIntents(bytes32[] intentIds) external',
   'function getIntent(bytes32 intentId) external view returns (tuple(bytes32 intentId, address user, uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, bytes signature, address[] allowedSolvers, uint8 status, address solver, uint256 fulfilledAmount, bytes32 paymentTxHash))',

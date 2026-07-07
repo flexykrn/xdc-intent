@@ -373,7 +373,7 @@ describe('Middleware API', () => {
       expect(res.body.transaction).toBe(paymentTxHash);
       expect(res.body.fulfillTransaction).toBe(fulfillTxHash);
       expect(res.body.destAmount).toBe('950');
-      expect(store.fulfillIntent).toHaveBeenCalledWith('0x123', '950', paymentTxHash, expect.any(Object));
+      expect(store.fulfillIntent).toHaveBeenCalledWith('0x123', '950', paymentTxHash, solver, expect.any(Object));
     });
   });
 

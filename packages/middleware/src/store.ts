@@ -12,7 +12,7 @@ const provider = new ethers.JsonRpcProvider(RPC_URL);
 
 const IntentRegistryABI = [
   'function getIntent(bytes32 intentId) external view returns (tuple(bytes32 intentId, address user, uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, bytes signature, address[] allowedSolvers, uint8 status, address solver, uint256 fulfilledAmount, bytes32 paymentTxHash))',
-  'function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash) external returns (bool)',
+  'function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash, address solver) external returns (bool)',
 ];
 
 const SolverRegistryABI = [
@@ -278,10 +278,11 @@ export async function fulfillIntent(
   intentId: string,
   destAmount: string,
   paymentTxHash: string,
+  solver: string,
   signer: ethers.Signer
 ): Promise<ethers.ContractTransactionResponse> {
   const contract = new ethers.Contract(process.env.INTENT_REGISTRY_ADDRESS || '', IntentRegistryABI, signer);
-  const tx = await contract.fulfillIntent(intentId, destAmount, paymentTxHash);
+  const tx = await contract.fulfillIntent(intentId, destAmount, paymentTxHash, solver);
   await tx.wait();
   return tx;
 }

@@ -278,6 +278,12 @@ export class Solver {
         if (result.error?.includes('already fulfilled') || result.error?.includes('not open')) {
           this.state.markCompleted(intent.intentId);
           this.logger.info(`Intent ${intent.intentId} already fulfilled`);
+          if (intent.sourceChainId !== intent.destChainId && this.config.bridgeAddress) {
+            const recordedSolver = await this.getRecordedSolver(intent.intentId);
+            if (recordedSolver?.toLowerCase() === this.submitter.getAddress().toLowerCase()) {
+              await this.rebalanceCrossChain(intent);
+            }
+          }
           return;
         }
         throw new Error(result.error || 'Fulfillment failed');
@@ -420,6 +426,21 @@ export class Solver {
         signature,
       },
     };
+  }
+
+  private async getRecordedSolver(intentId: string): Promise<string | null> {
+    try {
+      const registry = new ethers.Contract(
+        this.config.intentRegistryAddress,
+        ['function getIntent(bytes32 intentId) external view returns (tuple(bytes32 intentId, address user, uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, bytes signature, address[] allowedSolvers, uint8 status, address solver, uint256 fulfilledAmount, bytes32 paymentTxHash))'],
+        this.provider
+      );
+      const full = await registry.getIntent(intentId);
+      return full.solver;
+    } catch (error: any) {
+      this.logger.warn(`Failed to read recorded solver for ${intentId}: ${error.message}`);
+      return null;
+    }
   }
 
   private async rebalanceCrossChain(intent: IntentEvent): Promise<void> {

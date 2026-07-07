@@ -208,7 +208,7 @@ app.post('/v1/intents/:intentId/settle', apiKeyAuth, addressLimiter, async (req:
     }
 
     const paymentTxHash = settleResult.transaction;
-    const fulfillTx = await fulfillIntent(req.params.intentId, bestQuote.outputAmount, paymentTxHash, signer);
+    const fulfillTx = await fulfillIntent(req.params.intentId, bestQuote.outputAmount, paymentTxHash, bestQuote.solverAddress, signer);
 
     metrics.paymentsAccepted++;
     metrics.proofsIssued++;

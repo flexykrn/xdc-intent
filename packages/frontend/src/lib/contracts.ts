@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 
 export const CONTRACTS = {
-  intentRegistry: "0x441f5e07E6FC807E73454B4318ba487e05e65625",
+  intentRegistry: "0xfe1887C1686cF54d83107DAf7Ad7F5A5Ea95419b",
   escrow: "0x5c6fb5D7E81e11C303e5cE00fBE7AE748a47690d",
   paymentVerifier: "0x6Ce223bD961217917aa16654E77A6A440f35A70A",
   solverRegistry: "0x4F87a92E3950ec53AFC1776F14Af33c6E9aab360",
@@ -17,7 +17,7 @@ export const RPC_URL = "https://erpc.apothem.network";
 
 export const INTENT_REGISTRY_ABI = [
   "function submitIntent(tuple(uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, address[] allowedSolvers) calldata intent, bytes calldata signature) external returns (bool)",
-  "function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash) external returns (bool)",
+  "function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash, address solver) external returns (bool)",
   "function cancelIntent(bytes32 intentId) external",
   "function cancelExpiredIntents(bytes32[] calldata intentIds) external",
   "function getIntent(bytes32 intentId) external view returns (tuple(bytes32 intentId, address user, uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, bytes signature, address[] allowedSolvers, uint8 status, address solver, uint256 fulfilledAmount, bytes32 paymentTxHash))",

@@ -6,7 +6,7 @@ dataSources:
     name: IntentRegistry
     network: apothem
     source:
-      address: "0x441f5e07E6FC807E73454B4318ba487e05e65625"
+      address: "0xfe1887C1686cF54d83107DAf7Ad7F5A5Ea95419b"
       abi: IntentRegistry
       startBlock: 0
     mapping:

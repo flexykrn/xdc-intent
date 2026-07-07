@@ -96,7 +96,7 @@ describe("Smoke test: SDK + contracts end-to-end", function () {
     const destAmount = ethers.parseEther("995");
     const paymentTxHash = ethers.keccak256(ethers.toUtf8Bytes("mock-payment-tx"));
 
-    const fulfillTx = await solverSDK.fulfillIntent(signed.intentId, destAmount, paymentTxHash);
+    const fulfillTx = await solverSDK.fulfillIntent(signed.intentId, destAmount, paymentTxHash, solver.address);
     await fulfillTx.wait();
 
     const fulfilled = await userSDK.getIntent(signed.intentId);

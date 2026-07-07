@@ -111,7 +111,7 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
         );
     }
 
-    function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash)
+    function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash, address solver)
         external
         nonReentrant
         whenNotPaused
@@ -122,15 +122,15 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
         require(block.timestamp <= intent.expiry, "IntentRegistry: expired");
         require(destAmount >= intent.minDestAmount, "IntentRegistry: min dest amount");
         require(
-            intent.allowedSolvers.length == 0 || _isAllowedSolver(msg.sender, intent.allowedSolvers),
+            intent.allowedSolvers.length == 0 || _isAllowedSolver(solver, intent.allowedSolvers),
             "IntentRegistry: solver not allowed"
         );
 
-        require(solverRegistry.isRegistered(msg.sender), "IntentRegistry: solver not registered");
-        require(solverRegistry.supportsChain(msg.sender, intent.destChainId), "IntentRegistry: solver does not support dest chain");
+        require(solverRegistry.isRegistered(solver), "IntentRegistry: solver not registered");
+        require(solverRegistry.supportsChain(solver, intent.destChainId), "IntentRegistry: solver does not support dest chain");
 
         intent.status = IntentStatus.Fulfilled;
-        intent.solver = msg.sender;
+        intent.solver = solver;
         intent.fulfilledAmount = destAmount;
         intent.paymentTxHash = paymentTxHash;
 
@@ -140,7 +140,7 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
         require(
             paymentVerifier.verifyPayment(
                 paymentTxHash,
-                msg.sender,
+                solver,
                 intent.user,
                 intent.maxSolverFee,
                 intentId
@@ -152,11 +152,11 @@ contract IntentRegistry is IIntentRegistry, Ownable, Pausable, ReentrancyGuard, 
         escrow.releaseTokens(
             intent.sourceToken,
             intent.sourceAmount,
-            msg.sender,
+            solver,
             intentId
         );
 
-        emit IntentFulfilled(intentId, msg.sender, destAmount, paymentTxHash);
+        emit IntentFulfilled(intentId, solver, destAmount, paymentTxHash);
         return true;
     }
 

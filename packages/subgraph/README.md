@@ -6,7 +6,7 @@ Graph Protocol subgraph for indexing XDC Intent Framework events on the Apothem 
 
 ## Deployed Contracts (Apothem)
 
-- **IntentRegistry**: `0x441f5e07E6FC807E73454B4318ba487e05e65625`
+- **IntentRegistry**: `0xfe1887C1686cF54d83107DAf7Ad7F5A5Ea95419b`
 - **Escrow**: `0x5c6fb5D7E81e11C303e5cE00fBE7AE748a47690d`
 - **PaymentVerifier**: `0x6Ce223bD961217917aa16654E77A6A440f35A70A`
 - **SolverRegistry**: `0x4F87a92E3950ec53AFC1776F14Af33c6E9aab360`

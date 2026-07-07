@@ -42,7 +42,7 @@ interface IIntentRegistry {
     }
 
     function submitIntent(IntentParams calldata intent, bytes calldata signature) external returns (bytes32 intentId);
-    function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash) external returns (bool success);
+    function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash, address solver) external returns (bool success);
     function cancelIntent(bytes32 intentId) external;
     function cancelExpiredIntents(bytes32[] calldata intentIds) external;
     function getIntent(bytes32 intentId) external view returns (Intent memory);

@@ -125,7 +125,7 @@ describe("IntentRegistry (plan-aligned)", function () {
     const paymentTxHash = ethers.keccak256(ethers.toUtf8Bytes("payment-tx-3"));
 
     // The registry calls verifyPayment itself during fulfillIntent via the registered facilitator.
-    await expect(registry.connect(solver).fulfillIntent(intentId, params.minDestAmount, paymentTxHash))
+    await expect(registry.connect(solver).fulfillIntent(intentId, params.minDestAmount, paymentTxHash, solver.address))
       .to.emit(registry, "IntentFulfilled")
       .withArgs(intentId, solver.address, params.minDestAmount, paymentTxHash)
       .to.emit(verifier, "PaymentVerified")
