@@ -31,14 +31,18 @@ export interface BridgeStatus {
   intentId: string;
   sourceChainId: number;
   destChainId: number;
+  state: "pending" | "locked" | "minted" | "failed";
   locked: boolean;
   lockedAmount: string;
   lockedToken: string;
   minted: boolean;
   mintedAmount: string;
+  mintedToken?: string;
   bridgeOutTxHash?: string;
   bridgeInTxHash?: string;
   processed: boolean;
+  error?: string;
+  updatedAt: number;
 }
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());

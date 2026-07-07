@@ -28,6 +28,9 @@ const MockBridgeABI = [
   'event BridgeOut(bytes32 indexed intentId, address indexed token, uint256 amount, uint256 indexed destChainId, address sender)',
   'event BridgeIn(bytes32 indexed intentId, address indexed token, uint256 amount, uint256 indexed sourceChainId, address recipient)',
   'function processed(bytes32 intentId) external view returns (bool)',
+  'function bridgeOutProcessed(bytes32 intentId) external view returns (bool)',
+  'function mintProcessed(bytes32 intentId) external view returns (bool)',
+  'function lockedBalances(address token) external view returns (uint256)',
 ];
 
 const intentRegistry = new ethers.Contract(process.env.INTENT_REGISTRY_ADDRESS || '', IntentRegistryABI, provider);
@@ -39,17 +42,34 @@ export interface BridgeStatus {
   intentId: string;
   sourceChainId: number;
   destChainId: number;
+  state: 'pending' | 'locked' | 'minted' | 'failed';
   locked: boolean;
   lockedAmount: string;
   lockedToken: string;
   minted: boolean;
   mintedAmount: string;
+  mintedToken?: string;
   bridgeOutTxHash?: string;
   bridgeInTxHash?: string;
   processed: boolean;
+  error?: string;
+  updatedAt: number;
 }
 
+export const SUPPORTED_MOCK_DEST_CHAINS = (process.env.SUPPORTED_MOCK_DEST_CHAIN_IDS || '99999,88888')
+  .split(',')
+  .map((s) => parseInt(s.trim(), 10))
+  .filter((n) => !isNaN(n));
+
 const bridgeStatusCache = new Map<string, BridgeStatus>();
+
+function isCrossChain(sourceChainId: number, destChainId: number): boolean {
+  return sourceChainId !== destChainId;
+}
+
+export function isSupportedMockDestChain(chainId: number): boolean {
+  return SUPPORTED_MOCK_DEST_CHAINS.includes(chainId);
+}
 
 export async function getBridgeStatus(intentId: string): Promise<BridgeStatus> {
   const cached = bridgeStatusCache.get(intentId);
@@ -60,21 +80,38 @@ export async function getBridgeStatus(intentId: string): Promise<BridgeStatus> {
     intentId,
     sourceChainId: intent.sourceChainId,
     destChainId: intent.destChainId,
+    state: 'pending',
     locked: false,
     lockedAmount: '0',
     lockedToken: intent.sourceToken,
     minted: false,
     mintedAmount: '0',
     processed: false,
+    updatedAt: Date.now(),
   };
 
-  if (intent.sourceChainId === intent.destChainId) {
+  if (!isCrossChain(intent.sourceChainId, intent.destChainId)) {
+    status.state = 'minted';
+    status.minted = true;
+    status.processed = true;
+    return status;
+  }
+
+  if (!isSupportedMockDestChain(intent.destChainId)) {
+    status.error = `Unsupported destination chain ${intent.destChainId}`;
+    status.state = 'failed';
     return status;
   }
 
   try {
-    status.processed = await mockBridge.processed(intentId);
-    const currentBlock = await provider.getBlockNumber();
+    const [processed, bridgeOutProcessed, mintProcessed, currentBlock] = await Promise.all([
+      mockBridge.processed(intentId).catch(() => false),
+      mockBridge.bridgeOutProcessed(intentId).catch(() => false),
+      mockBridge.mintProcessed(intentId).catch(() => false),
+      provider.getBlockNumber(),
+    ]);
+    status.processed = processed;
+
     const fromBlock = Math.max(0, currentBlock - 100000);
 
     const outEvents = await mockBridge.queryFilter(mockBridge.filters.BridgeOut(intentId), fromBlock, currentBlock);
@@ -85,6 +122,7 @@ export async function getBridgeStatus(intentId: string): Promise<BridgeStatus> {
       status.lockedToken = event.args[1];
       status.bridgeOutTxHash = event.transactionHash;
       status.destChainId = Number(event.args[3]);
+      status.state = mintProcessed ? 'minted' : 'locked';
     }
 
     const inEvents = await mockBridge.queryFilter(mockBridge.filters.BridgeIn(intentId), fromBlock, currentBlock);
@@ -92,12 +130,21 @@ export async function getBridgeStatus(intentId: string): Promise<BridgeStatus> {
       const event = inEvents[inEvents.length - 1] as ethers.EventLog;
       status.minted = true;
       status.mintedAmount = event.args[2].toString();
+      status.mintedToken = event.args[1];
       status.bridgeInTxHash = event.transactionHash;
+      status.state = 'minted';
+    } else if (bridgeOutProcessed && !mintProcessed) {
+      status.state = 'locked';
     }
   } catch (error: any) {
     console.error(`Failed to fetch bridge status for ${intentId}:`, error.message);
+    status.error = error.message;
+    if (status.state === 'pending') {
+      status.state = 'failed';
+    }
   }
 
+  status.updatedAt = Date.now();
   bridgeStatusCache.set(intentId, status);
   return status;
 }

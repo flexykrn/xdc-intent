@@ -16,6 +16,7 @@ vi.mock('../src/store', async (importOriginal) => {
     isFacilitator: vi.fn(),
     fulfillIntent: vi.fn(),
     getIntentPaymentRequirements: vi.fn(),
+    getBridgeStatus: vi.fn(),
   };
 });
 
@@ -384,6 +385,36 @@ describe('Middleware API', () => {
       expect(res.body).toHaveProperty('totalRequests');
       expect(res.body).toHaveProperty('proofsIssued');
       expect(res.body).toHaveProperty('quotesReceived');
+    });
+  });
+
+  describe('Bridge status', () => {
+    afterEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it('GET /v1/intents/:intentId/bridge-status returns richer status', async () => {
+      vi.mocked(store.getBridgeStatus).mockResolvedValue({
+        intentId: '0xbridge-test',
+        sourceChainId: 51,
+        destChainId: 88888,
+        state: 'locked',
+        locked: true,
+        lockedAmount: '1000',
+        lockedToken: '0x86530A99784D188e8343e119140114d9e5fD0546',
+        minted: false,
+        mintedAmount: '0',
+        processed: false,
+        bridgeOutTxHash: '0xout',
+        updatedAt: Date.now(),
+      });
+
+      const res = await request(app).get('/v1/intents/0xbridge-test/bridge-status');
+      expect(res.status).toBe(200);
+      expect(res.body.state).toBe('locked');
+      expect(res.body.locked).toBe(true);
+      expect(res.body.destChainId).toBe(88888);
+      expect(res.body.bridgeOutTxHash).toBe('0xout');
     });
   });
 });

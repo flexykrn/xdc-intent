@@ -4,11 +4,22 @@ import { useWallet } from "@/components/providers";
 import PageContainer from "@/components/PageContainer";
 import { SectionHeader, Badge, TokenSymbol, EmptyState, LoadingState } from "@/components/ui";
 import { tokenSymbol, chainName, formatTokenAmount } from "@/lib/tokens";
-import { useIntents, useQuotes } from "@/lib/hooks";
+import { useIntents, useQuotes, type Quote } from "@/lib/hooks";
+import { truncateAddress } from "@/lib/utils";
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { ArrowRight, Activity, Search, Wallet, TrendingUp } from "lucide-react";
+import {
+  ArrowRight,
+  Activity,
+  Search,
+  Wallet,
+  TrendingUp,
+  Trophy,
+  Clock,
+  Loader2,
+  XCircle,
+} from "lucide-react";
 
 interface IntentData {
   intentId: string;
@@ -29,7 +40,7 @@ interface IntentData {
 export default function MarketPage() {
   const { isConnected } = useWallet();
   const { intents, isLoading } = useIntents();
-  const [filter, setFilter] = useState<"all" | "open" | "filled" | "cross-chain">("all");
+  const [filter, setFilter] = useState<"all" | "open" | "filled" | "cross-chain">("open");
   const [search, setSearch] = useState("");
 
   const filtered = useMemo(() => {
@@ -54,7 +65,7 @@ export default function MarketPage() {
       <PageContainer>
         <SectionHeader title="Market" description="Browse open intents and solver competition." />
         <EmptyState
-          icon=<Wallet className="w-6 h-6" />
+          icon={<Wallet className="w-6 h-6" />}
           title="Connect your wallet"
           description="Connect to view live intents and solver quotes."
         />
@@ -67,7 +78,7 @@ export default function MarketPage() {
       <SectionHeader
         eyebrow="Protocol"
         title="Intent Market"
-        description="Open intents competing for the best solver quote."
+        description="Live open intents and the competing solver quotes. The highest output is winning."
         action={
           <Link
             href="/create"
@@ -110,7 +121,7 @@ export default function MarketPage() {
         <LoadingState message="Loading market..." />
       ) : filtered.length === 0 ? (
         <EmptyState
-          icon=<Activity className="w-6 h-6" />
+          icon={<Activity className="w-6 h-6" />}
           title="No intents match"
           description={filter === "all" ? "There are no intents yet. Create the first one." : "Try a different filter."}
           action={
@@ -130,11 +141,22 @@ export default function MarketPage() {
   );
 }
 
+function timeLeft(expiry: number) {
+  const diff = expiry * 1000 - Date.now();
+  if (diff <= 0) return "Expired";
+  const mins = Math.ceil(diff / 60000);
+  if (mins < 60) return `${mins}m left`;
+  const hrs = Math.ceil(mins / 60);
+  if (hrs < 24) return `${hrs}h left`;
+  return `${Math.ceil(hrs / 24)}d left`;
+}
+
 function IntentCard({ intent, index }: { intent: IntentData; index: number }) {
-  const { quotes } = useQuotes(intent.intentId);
-  const best = quotes.length > 0
-    ? quotes.reduce((max, q) => (BigInt(q.outputAmount) > BigInt(max.outputAmount) ? q : max), quotes[0])
-    : null;
+  const { quotes, isLoading: quotesLoading } = useQuotes(intent.intentId);
+  const sorted = useMemo(() => {
+    return [...quotes].sort((a, b) => (BigInt(b.outputAmount) > BigInt(a.outputAmount) ? 1 : -1));
+  }, [quotes]);
+  const best = sorted[0] || null;
   const isCrossChain = intent.sourceChainId !== intent.destChainId;
 
   return (
@@ -146,11 +168,16 @@ function IntentCard({ intent, index }: { intent: IntentData; index: number }) {
     >
       <div className="flex items-start justify-between gap-4 mb-4">
         <div>
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             <Badge variant={intent.status === 1 ? "success" : intent.status === 2 ? "default" : "warning"}>
               {intent.status === 1 ? "Filled" : intent.status === 2 ? "Cancelled" : "Open"}
             </Badge>
             {isCrossChain && <Badge variant="info">Cross-Chain</Badge>}
+            {intent.status === 0 && best && (
+              <Badge variant="success" className="gap-1">
+                <Trophy size={10} /> Winning
+              </Badge>
+            )}
           </div>
           <div className="font-mono text-[11px] text-[var(--ink-3)]">{intent.intentId.slice(0, 18)}...</div>
         </div>
@@ -158,7 +185,9 @@ function IntentCard({ intent, index }: { intent: IntentData; index: number }) {
           <div className="text-xs text-[var(--ink-3)]">
             {chainName(intent.sourceChainId)} → {chainName(intent.destChainId)}
           </div>
-          <div className="text-[11px] text-[var(--ink-4)]">{new Date(intent.expiry * 1000).toLocaleDateString()}</div>
+          <div className="text-[11px] text-[var(--ink-4)] flex items-center justify-end gap-1 mt-0.5">
+            <Clock size={10} /> {timeLeft(intent.expiry)}
+          </div>
         </div>
       </div>
 
@@ -177,20 +206,33 @@ function IntentCard({ intent, index }: { intent: IntentData; index: number }) {
       </div>
 
       <div className="border-t border-[var(--border)] pt-4">
-        {best ? (
+        {intent.status === 1 ? (
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-xs text-[var(--ink-3)] mb-1">
-                Best quote ({quotes.length} solver{quotes.length !== 1 ? "s" : ""})
-              </div>
+              <div className="text-xs text-[var(--ink-3)] mb-1">Filled by {truncateAddress(intent.solver, 4, 4)}</div>
               <div className="text-emerald-600 font-semibold text-lg">
-                {formatTokenAmount(best.outputAmount, intent.destToken)} {tokenSymbol(intent.destToken)}
+                {formatTokenAmount(intent.fulfilledAmount, intent.destToken)} {tokenSymbol(intent.destToken)}
               </div>
             </div>
-            <div className="text-right">
-              <div className="text-xs text-[var(--ink-3)]">Solver fee</div>
-              <div className="text-sm font-medium">{(best.feeBps / 100).toFixed(2)}%</div>
+            <Badge variant="success">Filled</Badge>
+          </div>
+        ) : intent.status === 2 ? (
+          <div className="flex items-center gap-2 text-[var(--ink-3)] text-sm">
+            <XCircle size={16} /> Cancelled
+          </div>
+        ) : quotesLoading ? (
+          <div className="flex items-center gap-2 text-sm text-[var(--ink-3)]">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading solver quotes...
+          </div>
+        ) : sorted.length > 0 ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs text-[var(--ink-3)]">
+              <span>Competing quotes ({sorted.length})</span>
+              <span>Highest output wins</span>
             </div>
+            {sorted.map((q, idx) => (
+              <QuoteRow key={`${q.solverAddress}-${idx}`} quote={q} intent={intent} rank={idx} />
+            ))}
           </div>
         ) : (
           <div className="flex items-center gap-2 text-yellow-600 text-sm">
@@ -199,5 +241,25 @@ function IntentCard({ intent, index }: { intent: IntentData; index: number }) {
         )}
       </div>
     </motion.div>
+  );
+}
+
+function QuoteRow({ quote, intent, rank }: { quote: Quote; intent: IntentData; rank: number }) {
+  const isWinner = rank === 0;
+  return (
+    <div
+      className={`flex items-center justify-between p-2.5 rounded-xl border ${
+        isWinner ? "bg-emerald-500/5 border-emerald-500/20" : "bg-[var(--bg-3)] border-[var(--border)]"
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        {isWinner && <Trophy size={12} className="text-emerald-600" />}
+        <span className="text-xs font-medium text-[var(--ink)]">{truncateAddress(quote.solverAddress, 3, 3)}</span>
+        <span className="text-[10px] text-[var(--ink-3)]">{(quote.feeBps / 100).toFixed(2)}% fee</span>
+      </div>
+      <div className={`text-sm font-semibold font-mono-nums ${isWinner ? "text-emerald-600" : "text-[var(--ink)]"}`}>
+        {formatTokenAmount(quote.outputAmount, intent.destToken)} {tokenSymbol(intent.destToken)}
+      </div>
+    </div>
   );
 }

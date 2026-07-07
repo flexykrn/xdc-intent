@@ -83,18 +83,36 @@ export class SimpleDEXAdapter implements DEXAdapter {
 
   constructor(
     routerAddress: string,
-    private provider: ethers.Provider
+    private provider: ethers.Provider,
+    private wrappedNativeToken?: string
   ) {
     const routerAbi = [
       'function factory() external view returns (address)',
+      'function WETH() external view returns (address)',
       'function getAmountsOut(uint amountIn, address[] calldata path) external view returns (uint[] memory amounts)',
       'function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)',
     ];
     this.router = new ethers.Contract(routerAddress, routerAbi, provider);
   }
 
+  private normalizeAddress(address: string): string {
+    return ethers.getAddress(address.toLowerCase());
+  }
+
+  private normalizeToken(token: string): string {
+    if (token.toLowerCase() === NATIVE_TOKEN_ADDRESS.toLowerCase()) {
+      if (!this.wrappedNativeToken) {
+        throw new Error('Native token not supported by this SimpleDEX deployment; no wrapped native token configured');
+      }
+      return this.normalizeAddress(this.wrappedNativeToken);
+    }
+    return this.normalizeAddress(token);
+  }
+
   async getQuote(inputToken: string, outputToken: string, inputAmount: bigint): Promise<SwapQuote> {
-    const amounts = await this.router.getAmountsOut(inputAmount, [inputToken, outputToken]);
+    const normalizedIn = this.normalizeToken(inputToken);
+    const normalizedOut = this.normalizeToken(outputToken);
+    const amounts = await this.router.getAmountsOut(inputAmount, [normalizedIn, normalizedOut]);
     const amountOut = amounts[amounts.length - 1];
     const exchangeRate = Number(amountOut) / Number(inputAmount);
     return {
@@ -108,12 +126,28 @@ export class SimpleDEXAdapter implements DEXAdapter {
   }
 
   async quoteNativeToDest(nativeAmount: bigint, destToken: string): Promise<bigint> {
+    const normalizedDest = this.normalizeAddress(destToken);
+
+    let nativeWrapper: string;
     try {
       const weth = await (this.router as any).WETH();
-      if (!weth || weth.toLowerCase() === destToken.toLowerCase()) {
-        return nativeAmount;
+      if (weth && weth.toLowerCase() !== NATIVE_TOKEN_ADDRESS.toLowerCase()) {
+        nativeWrapper = this.normalizeAddress(weth);
+      } else if (this.wrappedNativeToken) {
+        nativeWrapper = this.normalizeAddress(this.wrappedNativeToken);
+      } else {
+        return 0n;
       }
-      const amounts = await this.router.getAmountsOut(nativeAmount, [weth, destToken]);
+    } catch {
+      return 0n;
+    }
+
+    if (nativeWrapper.toLowerCase() === normalizedDest.toLowerCase()) {
+      return nativeAmount;
+    }
+
+    try {
+      const amounts = await this.router.getAmountsOut(nativeAmount, [nativeWrapper, normalizedDest]);
       return amounts[amounts.length - 1];
     } catch {
       return 0n;
@@ -124,10 +158,11 @@ export class SimpleDEXAdapter implements DEXAdapter {
     const routerWithSigner = this.router.connect(signer);
     const deadline = Math.floor(Date.now() / 1000) + 300;
     const minOutput = (quote.outputAmount * 95n) / 100n;
+    const path = [this.normalizeToken(quote.inputToken), this.normalizeToken(quote.outputToken)];
     return (routerWithSigner as any).swapExactTokensForTokens(
       quote.inputAmount,
       minOutput,
-      [quote.inputToken, quote.outputToken],
+      path,
       await signer.getAddress(),
       deadline
     );

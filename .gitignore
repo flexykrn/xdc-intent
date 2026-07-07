@@ -85,6 +85,9 @@ coverage.json
 .yarn/install-state.yml
 .pnp.*
 
+# Bridge keeper runtime state
+packages/contracts/deployments/bridge-keeper-state.json
+
 # Demo/keeper logs
 *.err
 

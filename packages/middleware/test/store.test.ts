@@ -93,3 +93,11 @@ describe('Quote store helpers', () => {
     ).toBe(true);
   });
 });
+
+describe('Bridge status helpers', () => {
+  it('recognises default supported mock destination chains', () => {
+    expect(store.isSupportedMockDestChain(99999)).toBe(true);
+    expect(store.isSupportedMockDestChain(88888)).toBe(true);
+    expect(store.isSupportedMockDestChain(12345)).toBe(false);
+  });
+});

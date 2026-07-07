@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ethers } from 'ethers';
+import { CONTRACT_ADDRESSES } from '@xdc-intent/constants';
 import { SolverConfig } from '../src/config';
 import { IntentEvaluator } from '../src/evaluator';
-import { MockDEXAdapter } from '../src/adapters/dex';
+import { MockDEXAdapter, SimpleDEXAdapter, NATIVE_TOKEN_ADDRESS } from '../src/adapters/dex';
 import { MockBridgeAdapter } from '../src/adapters/bridge';
 import { StateManager } from '../src/state';
 import { IntentEvent } from '../src/watcher';
@@ -185,6 +186,32 @@ describe('Solver Components', () => {
       const tx = await adapter.executeSwap(quote, mockSigner);
       expect(tx.hash).toMatch(/^0x[a-f0-9]{64}$/);
     });
+  });
+
+  describe('SimpleDEXAdapter', () => {
+    const provider = new ethers.JsonRpcProvider('https://erpc.apothem.network');
+    const ROUTER_ADDRESS = '0xc8B08Ac4CDa23A3737Fe7D0C4BD94d58F0fEfa0c';
+    const apothem = CONTRACT_ADDRESSES[51];
+    const adapter = new SimpleDEXAdapter(ROUTER_ADDRESS, provider, apothem.mockXDC);
+
+    it('should fetch a real quote from the deployed SimpleDEX router', async () => {
+      const amountIn = ethers.parseUnits('10', 6);
+      const quote = await adapter.getQuote(apothem.mockUSDC, apothem.mockXDC, amountIn);
+      expect(quote.outputAmount).toBeGreaterThan(0n);
+      expect(quote.exchangeRate).toBeGreaterThan(0);
+    }, 30000);
+
+    it('should convert native gas cost to dest token via the wrapped native token', async () => {
+      const nativeAmount = ethers.parseEther('1');
+      const destAmount = await adapter.quoteNativeToDest(nativeAmount, apothem.mockUSDC);
+      expect(destAmount).toBeGreaterThan(0n);
+    }, 30000);
+
+    it('should treat native as the wrapped native token when quoting', async () => {
+      const amountIn = ethers.parseEther('1');
+      const quote = await adapter.getQuote(NATIVE_TOKEN_ADDRESS, apothem.mockUSDC, amountIn);
+      expect(quote.outputAmount).toBeGreaterThan(0n);
+    }, 30000);
   });
 
   describe('StateManager', () => {

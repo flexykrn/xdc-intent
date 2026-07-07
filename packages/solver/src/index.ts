@@ -1,4 +1,5 @@
 import { ethers } from 'ethers';
+import { CONTRACT_ADDRESSES } from '@xdc-intent/constants';
 import { Logger, createLogger } from './logger';
 import { SolverConfig, loadConfig } from './config';
 import { EventWatcher, IntentEvent } from './watcher';
@@ -38,7 +39,11 @@ export class Solver {
     this.dexAdapter = this.config.quoterAddress
       ? new XSwapV3Adapter(this.config.quoterAddress, this.config.routerAddress ?? '', this.provider)
       : this.config.routerAddress
-        ? new SimpleDEXAdapter(this.config.routerAddress, this.provider)
+        ? new SimpleDEXAdapter(
+            this.config.routerAddress,
+            this.provider,
+            CONTRACT_ADDRESSES[this.config.chainId]?.mockXDC
+          )
         : new MockDEXAdapter();
 
     this.bridgeAdapter = new MockBridgeAdapter(this.config.bridgeAddress, this.provider);
@@ -137,18 +142,36 @@ export class Solver {
       const wallet = new ethers.Wallet(this.config.privateKey, provider);
       const registry = new ethers.Contract(
         this.config.solverRegistryAddress,
-        ['function registerSolver(string memory name, uint256 feeBps, uint256[] memory supportedChains) external returns (uint256)'],
+        [
+          'function registerSolver(string memory name, uint256 feeBps, uint256[] memory supportedChains) external returns (uint256)',
+          'function updateSupportedChains(uint256[] memory supportedChains) external',
+          'function getSolverByAddress(address solver) external view returns (tuple(address solverAddress, string name, uint256 feeBps, bool active, uint256 registeredAt, uint256[] supportedChains))',
+        ],
         wallet
       );
-      const tx = await registry.registerSolver(this.config.solverName, this.config.solverFeeBps, this.config.supportedChains);
-      await tx.wait();
-      this.logger.info(`Registered solver ${this.config.solverName} with fee ${this.config.solverFeeBps} bps`);
-    } catch (error: any) {
-      if (error.message?.includes('already registered')) {
-        this.logger.info('Solver already registered');
-      } else {
-        this.logger.warn(`Solver registration failed: ${error.message}`);
+      try {
+        const tx = await registry.registerSolver(this.config.solverName, this.config.solverFeeBps, this.config.supportedChains);
+        await tx.wait();
+        this.logger.info(`Registered solver ${this.config.solverName} with fee ${this.config.solverFeeBps} bps`);
+        return;
+      } catch (error: any) {
+        if (!error.message?.includes('already registered')) {
+          throw error;
+        }
       }
+
+      const current = await registry.getSolverByAddress(wallet.address);
+      const currentChains = (current.supportedChains as bigint[]).map((n) => Number(n)).sort();
+      const desiredChains = [...this.config.supportedChains].sort();
+      if (JSON.stringify(currentChains) !== JSON.stringify(desiredChains)) {
+        const tx = await registry.updateSupportedChains(this.config.supportedChains);
+        await tx.wait();
+        this.logger.info(`Updated supported chains for ${this.config.solverName}: ${desiredChains.join(',')}`);
+      } else {
+        this.logger.info('Solver already registered');
+      }
+    } catch (error: any) {
+      this.logger.warn(`Solver registration failed: ${error.message}`);
     }
   }
 

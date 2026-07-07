@@ -44,10 +44,16 @@ This starts middleware, Solver A, Solver B, and the frontend in parallel.
 ### Bridge keeper (cross-chain simulation)
 The keeper watches `BridgeOut` events on `MockBridge` and calls `mintOnDest` to simulate tokens arriving on the destination chain. It must be run from the deployer/owner key.
 
+Supported mock destination chains: `99999` (Mock L2 Alpha) and `88888` (Mock L2 Beta). Configure which chains the keeper watches with `KEEPER_DEST_CHAIN_IDS`.
+
 ```bash
 cd packages/contracts
-MOCK_BRIDGE_ADDRESS=0xB494122Fb840D928d0f0F98E69985a85E9EBC139 npx hardhat run scripts/bridge-keeper.ts --network apothem
+MOCK_BRIDGE_ADDRESS=0xB494122Fb840D928d0f0F98E69985a85E9EBC139 \
+KEEPER_DEST_CHAIN_IDS=99999,88888 \
+npx hardhat run scripts/bridge-keeper.ts --network apothem
 ```
+
+The keeper persists its last scanned block in `packages/contracts/deployments/bridge-keeper-state.json` (gitignored) and skips already-processed intents.
 
 ### Manual startup
 
@@ -133,6 +139,8 @@ npx hardhat run scripts/e2e-cross-chain.ts --network apothem
 | Cross-chain (2026-07-07) | `0xfcfa747e...a6e49f5` | `0x9f629D06...34AE1e16` | `199.00` MXDC | `0x63c1193f...ee9fbb6` | â€” |
 | Same-chain (2026-07-07) | `0x6b48dbd8...0c651003` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `200.00` MXDC | `0xd2d7fd35...c98938df` | â€” |
 | Cross-chain (2026-07-07) | `0xd93ef9e7...98e5080` | `0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe` | `199.00` MXDC | `0x3c378b57...48739dc6` | `0xb643a6d4...d0ee57a` |
+| Same-chain (2026-07-07) | `0xb6d8d766...fc90795e` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `200.00` MXDC | `0xe8c788c0...f2b7d301` | â€” |
+| Cross-chain Beta 88888 (2026-07-07) | `0xd777be92...bb5585e1` | `0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe` | `199.00` MXDC | `0x8eeb8e57...aa1053e9` | `0x8554ad5e...64a8eace1` |
 
 **Note:** `IntentRegistry.fulfillIntent` now accepts an explicit `solver` parameter. The middleware passes the actual winning solver address, so on-chain `solver` matches the off-chain quote winner and source tokens are released to the solver.
 

@@ -15,7 +15,8 @@ export interface ChainInfo {
 
 export const CHAINS: ChainInfo[] = [
   { chainId: 51, name: "XDC Apothem", shortName: "Apothem", nativeSymbol: "XDC" },
-  { chainId: 99999, name: "Mock L2", shortName: "MockL2", nativeSymbol: "mXDC" },
+  { chainId: 99999, name: "Mock L2 Alpha", shortName: "MockL2", nativeSymbol: "mXDC" },
+  { chainId: 88888, name: "Mock L2 Beta", shortName: "MockL2-Beta", nativeSymbol: "mXDC" },
 ];
 
 export const TOKENS: TokenInfo[] = [

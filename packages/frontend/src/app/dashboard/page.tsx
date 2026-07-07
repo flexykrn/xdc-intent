@@ -10,7 +10,8 @@ import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import toast from "react-hot-toast";
-import { ArrowRight, Plus, LayoutGrid, Activity, Wallet, AlertCircle, Droplets } from "lucide-react";
+import { SolverLeaderboard } from "@/components/SolverLeaderboard";
+import { ArrowRight, Plus, LayoutGrid, Activity, Wallet, AlertCircle, Droplets, Trophy } from "lucide-react";
 
 export default function DashboardPage() {
   const { isConnected, address, signer } = useWallet();
@@ -164,10 +165,11 @@ export default function DashboardPage() {
               <span className="font-semibold text-[var(--ink)]">Quick Actions</span>
             </div>
             <div className="space-y-2">
-              <QuickAction href="/create" icon=<Plus size={16} /> label="Create Intent" />
-              <QuickAction href="/market" icon=<Activity size={16} /> label="Browse Market" />
-              <QuickAction href="/my-intents" icon=<Wallet size={16} /> label="My Intents" />
-              <QuickAction href="/agent-demo" icon=<LayoutGrid size={16} /> label="AI Agent Demo" />
+              <QuickAction href="/create" icon={<Plus size={16} />} label="Create Intent" />
+              <QuickAction href="/market" icon={<Activity size={16} />} label="Browse Market" />
+              <QuickAction href="/my-intents" icon={<Wallet size={16} />} label="My Intents" />
+              <QuickAction href="/solvers" icon={<Trophy size={16} />} label="Solver Leaderboard" />
+              <QuickAction href="/agent-demo" icon={<LayoutGrid size={16} />} label="AI Agent Demo" />
             </div>
           </div>
 
@@ -199,6 +201,23 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="mt-8">
+        <SectionHeader
+          eyebrow="Solvers"
+          title="Solver Leaderboard"
+          description="Registered solvers competing to fulfill intents."
+          action={
+            <Link
+              href="/solvers"
+              className="inline-flex items-center gap-1 text-[13px] font-medium text-[var(--accent)] hover:underline"
+            >
+              View all <ArrowRight size={14} />
+            </Link>
+          }
+        />
+        <SolverLeaderboard />
       </div>
     </PageContainer>
   );
