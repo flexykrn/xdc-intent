@@ -16,6 +16,8 @@ export interface XDCIntentSDKConfig {
     escrow: string;
     paymentVerifier: string;
     intentRegistry: string;
+    solverRegistry?: string;
+    mockBridge?: string;
   };
   webSocketUrl?: string;
   pollingInterval?: number;
@@ -50,7 +52,13 @@ export class XDCIntentSDK {
   private wsProvider?: ethers.WebSocketProvider;
   private signer?: ethers.Signer;
   private chainId: number;
-  private addresses: { escrow: string; paymentVerifier: string; intentRegistry: string };
+  private addresses: {
+    escrow: string;
+    paymentVerifier: string;
+    intentRegistry: string;
+    solverRegistry?: string;
+    mockBridge?: string;
+  };
   private listeners: Map<string, any> = new Map();
   private activeWatchers: Set<string> = new Set();
   private pollingInterval: number;
@@ -439,7 +447,9 @@ const IntentRegistryABI = [
   'function getIntent(bytes32 intentId) external view returns (tuple(bytes32 intentId, address user, uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, bytes signature, address[] allowedSolvers, uint8 status, address solver, uint256 fulfilledAmount, bytes32 paymentTxHash))',
   'function getUserNonce(address user) external view returns (uint256)',
   'function getUserIntents(address user) external view returns (bytes32[])',
+  'function getTotalIntents() external view returns (uint256)',
   'function setPaymentVerifier(address verifier) external',
+  'function setSolverRegistry(address registry) external',
   'function setEscrow(address escrow) external',
   'function pause() external',
   'function unpause() external',

@@ -9,10 +9,16 @@ import {
   getIntentPaymentRequirements,
   addQuote,
   getQuotes,
+  getBestQuote,
   validatePaymentPayload,
   getBridgeStatus,
   safeBase64Encode,
   safeBase64Decode,
+  verifyQuoteSignature,
+  isAllowedSolver,
+  isSolverRegisteredAndSupportsChain,
+  isFacilitator,
+  fulfillIntent,
   type Quote,
 } from './store';
 import { verifyEIP3009, settleEIP3009 } from './eip3009';
@@ -20,7 +26,7 @@ import { verifyEIP3009, settleEIP3009 } from './eip3009';
 dotenv.config();
 
 const RPC_URL = process.env.RPC_URL || 'https://erpc.apothem.network';
-const SIGNER_KEY = process.env.MIDDLEWARE_SIGNER_PRIVATE_KEY || '';
+const SIGNER_KEY = process.env.FACILITATOR_PRIVATE_KEY || process.env.MIDDLEWARE_SIGNER_PRIVATE_KEY || '';
 const API_KEY = process.env.MIDDLEWARE_API_KEY || 'testnet2024';
 const INTENT_REGISTRY_ADDRESS = process.env.INTENT_REGISTRY_ADDRESS || '';
 
@@ -162,6 +168,31 @@ app.post('/v1/intents/:intentId/settle', apiKeyAuth, addressLimiter, async (req:
     }
     const paymentPayload = decoded;
 
+    const solverAddress = ethers.getAddress(paymentPayload.payload.authorization.from);
+
+    if (!isAllowedSolver(solverAddress, intent.allowedSolvers)) {
+      return res.status(403).json({ error: 'Solver not in allowedSolvers' });
+    }
+
+    const solverOk = await isSolverRegisteredAndSupportsChain(solverAddress, intent.destChainId);
+    if (!solverOk) {
+      return res.status(403).json({ error: 'Solver not registered or does not support destination chain' });
+    }
+
+    const bestQuote = getBestQuote(req.params.intentId);
+    if (!bestQuote || ethers.getAddress(bestQuote.solverAddress) !== solverAddress) {
+      return res.status(400).json({ error: 'Solver does not have the winning quote for this intent' });
+    }
+
+    if (!verifyQuoteSignature(bestQuote)) {
+      return res.status(400).json({ error: 'Invalid quote signature' });
+    }
+
+    const facilitatorOk = await isFacilitator(signer.address);
+    if (!facilitatorOk) {
+      return res.status(403).json({ error: 'Middleware signer is not a registered facilitator' });
+    }
+
     const requirements = (await getIntentPaymentRequirements(req.params.intentId, intent.destToken, intent.maxSolverFee, signer.address, `${req.protocol}://${req.get('host')}${req.originalUrl}`)).accepts[0];
 
     const verifyResult = await verifyEIP3009(provider, requirements, paymentPayload);
@@ -171,15 +202,25 @@ app.post('/v1/intents/:intentId/settle', apiKeyAuth, addressLimiter, async (req:
     }
 
     const settleResult = await settleEIP3009(signer, requirements, paymentPayload);
-    if (!settleResult.success) {
+    if (!settleResult.success || !settleResult.transaction) {
       metrics.totalErrors++;
       return res.status(402).json({ error: settleResult.errorReason, message: settleResult.errorMessage });
     }
 
+    const paymentTxHash = settleResult.transaction;
+    const fulfillTx = await fulfillIntent(req.params.intentId, bestQuote.outputAmount, paymentTxHash, signer);
+
     metrics.paymentsAccepted++;
     metrics.proofsIssued++;
 
-    const response = { success: true, transaction: settleResult.transaction, intentId: req.params.intentId };
+    const response = {
+      success: true,
+      transaction: paymentTxHash,
+      fulfillTransaction: fulfillTx.hash,
+      intentId: req.params.intentId,
+      solver: solverAddress,
+      destAmount: bestQuote.outputAmount,
+    };
     res.setHeader('PAYMENT-RESPONSE', safeBase64Encode(response));
     res.json(response);
   } catch (error: any) {

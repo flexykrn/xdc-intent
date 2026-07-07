@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ethers } from 'ethers';
 import { SolverConfig } from '../src/config';
 import { IntentEvaluator } from '../src/evaluator';
@@ -6,13 +6,17 @@ import { MockDEXAdapter } from '../src/adapters/dex';
 import { StateManager } from '../src/state';
 import { IntentEvent } from '../src/watcher';
 import { CircuitBreaker } from '../src/circuit-breaker';
+import { Solver } from '../src/index';
 import winston from 'winston';
+import path from 'path';
+import os from 'os';
+import fs from 'fs';
 
 describe('Solver Components', () => {
   const mockConfig: SolverConfig = {
     rpcUrl: 'https://erpc.apothem.network',
     chainId: 51,
-    privateKey: '0x' + '00'.repeat(32),
+    privateKey: '0x' + '00'.repeat(31) + '01',
     escrowAddress: '0x' + '00'.repeat(20),
     paymentVerifierAddress: '0x' + '00'.repeat(20),
     intentRegistryAddress: '0x' + '00'.repeat(20),
@@ -263,6 +267,88 @@ describe('Solver Components', () => {
       await expect(breaker.execute(async () => { throw new Error('fail'); })).rejects.toThrow('fail');
       await expect(breaker.execute(async () => 'ok')).rejects.toThrow('OPEN');
       expect(breaker.getState()).toBe('OPEN');
+    });
+  });
+
+  describe('Solver duplicate quote prevention', () => {
+    let solver: Solver;
+    const stateFilePath = path.join(os.tmpdir(), 'opencode', 'solver-state-test.json');
+
+    const intent: IntentEvent = {
+      intentId: '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
+      user: '0x' + '11'.repeat(20),
+      sourceChainId: 51,
+      sourceToken: '0x' + '22'.repeat(20),
+      sourceAmount: ethers.parseEther('100'),
+      destChainId: 51,
+      destToken: '0x' + '33'.repeat(20),
+      minDestAmount: ethers.parseEther('1'),
+      maxSolverFee: ethers.parseEther('0.001'),
+      expiry: Math.floor(Date.now() / 1000) + 3600,
+      blockNumber: 100,
+      transactionHash: '0x' + '44'.repeat(32),
+    };
+
+    beforeEach(() => {
+      process.env.RPC_URL = mockConfig.rpcUrl;
+      process.env.CHAIN_ID = String(mockConfig.chainId);
+      process.env.SOLVER_PRIVATE_KEY = mockConfig.privateKey;
+      process.env.ESCROW_ADDRESS = mockConfig.escrowAddress;
+      process.env.PAYMENT_VERIFIER_ADDRESS = mockConfig.paymentVerifierAddress;
+      process.env.INTENT_REGISTRY_ADDRESS = mockConfig.intentRegistryAddress;
+      process.env.SOLVER_REGISTRY_ADDRESS = mockConfig.solverRegistryAddress;
+      process.env.FACILITATOR_URL = mockConfig.facilitatorUrl;
+      process.env.FACILITATOR_API_KEY = mockConfig.facilitatorApiKey;
+      process.env.STATE_FILE_PATH = stateFilePath;
+      process.env.HTTP_PORT = String(mockConfig.httpPort);
+      process.env.POLLING_INTERVAL_MS = String(mockConfig.pollingInterval);
+      process.env.MIN_PROFIT_MARGIN = String(mockConfig.minProfitMargin);
+      process.env.MAX_SLIPPAGE = String(mockConfig.maxSlippage);
+      process.env.MAX_GAS_PRICE_GWEI = String(mockConfig.maxGasPriceGwei);
+      process.env.SUPPORTED_TOKENS = mockConfig.supportedTokens.join(',');
+      process.env.LOG_LEVEL = mockConfig.logLevel;
+      process.env.SOLVER_NAME = mockConfig.solverName;
+      process.env.SOLVER_FEE_BPS = String(mockConfig.solverFeeBps);
+      process.env.SUPPORTED_CHAINS = '51';
+      process.env.MIN_DEST_AMOUNT = String(mockConfig.minDestAmount);
+      process.env.MIN_SOURCE_AMOUNT = String(mockConfig.minSourceAmount);
+      process.env.MAX_RETRIES = String(mockConfig.maxRetries);
+      process.env.RETRY_BASE_DELAY_MS = String(mockConfig.retryBaseDelayMs);
+      process.env.RETRY_MAX_DELAY_MS = String(mockConfig.retryMaxDelayMs);
+
+      solver = new Solver();
+      (solver as any).isRunning = true;
+
+      vi.spyOn((solver as any).evaluator, 'evaluate').mockResolvedValue({
+        shouldFulfill: true,
+        reason: 'Profitable',
+        estimatedOutput: 1000n,
+      });
+      vi.spyOn((solver as any).inventory, 'hasSufficientBalance').mockResolvedValue(true);
+      vi.spyOn((solver as any).facilitator, 'submitQuote').mockResolvedValue({ success: true });
+      vi.spyOn(solver as any, 'waitForQuoteWin').mockResolvedValue(undefined);
+      vi.spyOn((solver as any).fulfillmentBreaker, 'execute').mockResolvedValue({
+        success: true,
+        txHash: '0x' + '55'.repeat(32),
+      });
+    });
+
+    afterEach(() => {
+      solver.stop();
+      try {
+        fs.unlinkSync(stateFilePath);
+      } catch {}
+    });
+
+    it('should submit only one quote when handleIntent is called concurrently', async () => {
+      const handle = (solver as any).handleIntent.bind(solver);
+      await Promise.all([handle(intent), handle(intent)]);
+      expect((solver as any).facilitator.submitQuote).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not treat losing the quote competition as retriable', () => {
+      expect((solver as any).isRetriableError('Did not win quote competition')).toBe(false);
+      expect((solver as any).isRetriableError('nonce conflict')).toBe(true);
     });
   });
 });

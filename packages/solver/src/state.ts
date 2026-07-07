@@ -148,6 +148,10 @@ export class StateManager {
     }
   }
 
+  isQuoted(intentId: string): boolean {
+    return this.pending.get(intentId)?.quoted === true;
+  }
+
   markCompleted(intentId: string): void {
     const intent = this.pending.get(intentId);
     if (intent) {

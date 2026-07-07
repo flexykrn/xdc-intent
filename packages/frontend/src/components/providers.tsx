@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { ethers } from "ethers";
 import { XDCIntentSDK } from "@xdc-intent/sdk";
-import { RPC_URL } from "@/lib/contracts";
+import { RPC_URL, CONTRACTS } from "@/lib/contracts";
 
 interface WalletContextType {
   address: string | null;
@@ -130,6 +130,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         provider: browserProvider,
         signer: newSigner,
         chainId: 51,
+        contractAddresses: {
+          intentRegistry: CONTRACTS.intentRegistry,
+          escrow: CONTRACTS.escrow,
+          paymentVerifier: CONTRACTS.paymentVerifier,
+        },
       });
 
       setProvider(browserProvider);

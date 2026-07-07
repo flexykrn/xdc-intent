@@ -5,7 +5,7 @@ import PageContainer from "@/components/PageContainer";
 import { Badge } from "@/components/ui";
 import { tokenSymbol, chainName, parseTokenAmount, formatTokenAmount } from "@/lib/tokens";
 import { ethers } from "ethers";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bot, Send, User, Loader2, CheckCircle, ArrowRight, ExternalLink } from "lucide-react";
 import toast from "react-hot-toast";
@@ -34,6 +34,30 @@ const APOTHEM_TOKENS = {
   mockUSDC: "0x86530A99784D188e8343e119140114d9e5fD0546",
   mockXDC: "0xfe4E746cA450C46Fe6Ede5EAc184A7F2082B2312",
 };
+
+function formatAgentContent(text: string): ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|__[^_]+__|_[^_]+_)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+    const raw = match[0];
+    const inner = raw.slice(2, -2);
+    if (raw.startsWith("**") || raw.startsWith("__")) {
+      nodes.push(<strong key={match.index}>{inner}</strong>);
+    } else {
+      nodes.push(<em key={match.index}>{inner}</em>);
+    }
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+  return nodes;
+}
 
 export default function AgentDemoPage() {
   const { isConnected, sdk, address, signer } = useWallet();
@@ -103,7 +127,7 @@ export default function AgentDemoPage() {
     const toastId = toast.loading("Submitting intent...");
     try {
       const expiry = Math.floor((new Date().getTime()) / 1000) + 3600;
-      const nonce = Number(await sdk.getUserNonce(address)) + 1;
+      const nonce = (await sdk.getUserNonce(address)) + 1n;
       const escrowAddress = await sdk.escrow.getAddress();
 
       const inputAmount = parseTokenAmount(parsed.inputAmount, parsed.inputToken);
@@ -256,8 +280,12 @@ export default function AgentDemoPage() {
                 >
                   {m.role === "user" ? <User size={14} /> : <Bot size={14} />}
                 </div>
-                <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${m.role === "user" ? "bg-[var(--accent)] text-white" : "bg-[var(--bg-3)] text-[var(--ink)]"}`}>
-                  <div dangerouslySetInnerHTML={{ __html: m.content.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>") }} />
+                <div
+                  className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                    m.role === "user" ? "bg-[var(--accent)] text-white" : "bg-[var(--bg-3)] text-[var(--ink)]"
+                  }`}
+                >
+                  <div>{formatAgentContent(m.content)}</div>
                   {m.txHash && m.txHash !== ethers.ZeroHash && (
                     <a
                       href={`https://testnet.xdcscan.com/tx/${m.txHash}`}

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ethers } from "ethers";
+import { tokenDecimals } from "@/lib/tokens";
 
 const ROUTER_ADDRESS = "0xc8B08Ac4CDa23A3737Fe7D0C4BD94d58F0fEfa0c";
 const ROUTER_ABI = [
@@ -24,8 +25,8 @@ export async function GET(request: Request) {
     const provider = new ethers.JsonRpcProvider(RPC_URL);
     const router = new ethers.Contract(ROUTER_ADDRESS, ROUTER_ABI, provider);
 
-    const decimals = fromToken.toLowerCase() === "0x86530a99784d188e8343e119140114d9e5fd0546" ? 6 : 18;
-    const amountIn = BigInt(Math.floor(parseFloat(amount) * 10 ** decimals));
+    const decimals = tokenDecimals(fromToken);
+    const amountIn = ethers.parseUnits(amount, decimals);
 
     const amounts = await router.getAmountsOut(amountIn, [fromToken, toToken]);
     return NextResponse.json({ outputAmount: amounts[1].toString() });

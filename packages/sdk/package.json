@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "echo 'SDK tests skipped - hardhat peer-dependency hoisting issue in workspace' \u0026\u0026 exit 0",
+    "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",

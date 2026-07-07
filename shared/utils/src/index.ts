@@ -22,7 +22,7 @@ export function deriveIntentId(
     minDestAmount: bigint;
     maxSolverFee: bigint;
     expiry: number;
-    nonce: number;
+    nonce: bigint;
   }
 ): string {
   return ethers.solidityPackedKeccak256(

@@ -12,6 +12,16 @@ const provider = new ethers.JsonRpcProvider(RPC_URL);
 
 const IntentRegistryABI = [
   'function getIntent(bytes32 intentId) external view returns (tuple(bytes32 intentId, address user, uint256 sourceChainId, address sourceToken, uint256 sourceAmount, uint256 destChainId, address destToken, uint256 minDestAmount, uint256 maxSolverFee, uint256 expiry, uint256 nonce, bytes signature, address[] allowedSolvers, uint8 status, address solver, uint256 fulfilledAmount, bytes32 paymentTxHash))',
+  'function fulfillIntent(bytes32 intentId, uint256 destAmount, bytes32 paymentTxHash) external returns (bool)',
+];
+
+const SolverRegistryABI = [
+  'function isRegistered(address solver) external view returns (bool)',
+  'function supportsChain(address solver, uint256 chainId) external view returns (bool)',
+];
+
+const PaymentVerifierABI = [
+  'function facilitators(address) external view returns (bool)',
 ];
 
 const MockBridgeABI = [
@@ -21,6 +31,8 @@ const MockBridgeABI = [
 ];
 
 const intentRegistry = new ethers.Contract(process.env.INTENT_REGISTRY_ADDRESS || '', IntentRegistryABI, provider);
+const solverRegistry = new ethers.Contract(process.env.SOLVER_REGISTRY_ADDRESS || '', SolverRegistryABI, provider);
+const paymentVerifier = new ethers.Contract(process.env.PAYMENT_VERIFIER_ADDRESS || '', PaymentVerifierABI, provider);
 const mockBridge = new ethers.Contract(process.env.MOCK_BRIDGE_ADDRESS || '', MockBridgeABI, provider);
 
 export interface BridgeStatus {
@@ -215,9 +227,63 @@ export async function getIntentDetails(intentId: string) {
 }
 
 export function addQuote(quote: Quote): void {
-  const list = quotes.get(quote.intentId) || [];
-  list.push(quote);
-  quotes.set(quote.intentId, list);
+  const normalized: Quote = {
+    ...quote,
+    solverAddress: ethers.getAddress(quote.solverAddress),
+  };
+  const list = quotes.get(normalized.intentId) || [];
+  const index = list.findIndex((q) => ethers.getAddress(q.solverAddress) === normalized.solverAddress);
+  if (index >= 0) {
+    list[index] = normalized;
+  } else {
+    list.push(normalized);
+  }
+  quotes.set(normalized.intentId, list);
+}
+
+export function verifyQuoteSignature(quote: Quote): boolean {
+  try {
+    const message = JSON.stringify({
+      intentId: quote.intentId,
+      outputAmount: quote.outputAmount.toString(),
+      solver: ethers.getAddress(quote.solverAddress),
+    });
+    const recovered = ethers.verifyMessage(message, quote.signature);
+    return ethers.getAddress(recovered) === ethers.getAddress(quote.solverAddress);
+  } catch {
+    return false;
+  }
+}
+
+export function isAllowedSolver(solverAddress: string, allowedSolvers: string[]): boolean {
+  if (allowedSolvers.length === 0) return true;
+  const normalized = ethers.getAddress(solverAddress);
+  return allowedSolvers.some((addr) => ethers.getAddress(addr) === normalized);
+}
+
+export async function isSolverRegisteredAndSupportsChain(solverAddress: string, destChainId: number): Promise<boolean> {
+  const normalized = ethers.getAddress(solverAddress);
+  const [registered, supports] = await Promise.all([
+    solverRegistry.isRegistered(normalized),
+    solverRegistry.supportsChain(normalized, BigInt(destChainId)),
+  ]);
+  return registered && supports;
+}
+
+export async function isFacilitator(address: string): Promise<boolean> {
+  return paymentVerifier.facilitators(ethers.getAddress(address));
+}
+
+export async function fulfillIntent(
+  intentId: string,
+  destAmount: string,
+  paymentTxHash: string,
+  signer: ethers.Signer
+): Promise<ethers.ContractTransactionResponse> {
+  const contract = new ethers.Contract(process.env.INTENT_REGISTRY_ADDRESS || '', IntentRegistryABI, signer);
+  const tx = await contract.fulfillIntent(intentId, destAmount, paymentTxHash);
+  await tx.wait();
+  return tx;
 }
 
 export function getQuotes(intentId: string): Quote[] {

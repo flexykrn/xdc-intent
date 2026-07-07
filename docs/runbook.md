@@ -118,11 +118,12 @@ npx hardhat run scripts/e2e-cross-chain.ts --network apothem
 
 ## Demo Transaction History
 
-| Run | Intent ID | Winner | Fulfilled Amount | Payment Tx |
-|---|---|---|---|---|
-| Two-solver competition (2026-07-06) | `0x97e290cb...f1525a7d` | `0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe` | `1974.32` MXDC | — |
-| Cross-chain (2026-07-06) | `0xe921dac5...4133a219` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `198.21` MXDC | — |
-| AI agent demo (2026-07-06) | `0xbe165976f566fc509aae1a382347d218edd2c10e5623869b3a40828e15af5939` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `219.78` MXDC | `0x9465e9b4228f71361f3051c4d7096212614dfa6c8169a6f2adc8e0496a3423e5` |
+| Run | Intent ID | Winner | Fulfilled Amount | Payment Tx | Bridge Mint Tx |
+|---|---|---|---|---|---|
+| Two-solver competition (2026-07-06) | `0x97e290cb...f1525a7d` | `0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe` | `1974.32` MXDC | — | — |
+| Cross-chain (2026-07-06) | `0xe921dac5...4133a219` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `198.21` MXDC | — | — |
+| AI agent demo (2026-07-06) | `0xbe165976f566fc509aae1a382347d218edd2c10e5623869b3a40828e15af5939` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `219.78` MXDC | `0x9465e9b4228f71361f3051c4d7096212614dfa6c8169a6f2adc8e0496a3423e5` | — |
+| Cross-chain (2026-07-07) | `0x247a2a3d...b4554951` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `199.00` MXDC | `0x72094194...2f0efa4f` | `0x3d19ed9d...76648f7` |
 
 ## AI Agent Demo
 

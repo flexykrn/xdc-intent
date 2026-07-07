@@ -4,6 +4,7 @@ import { useWallet } from "@/components/providers";
 import PageContainer from "@/components/PageContainer";
 import { SectionHeader, Badge, TokenSymbol, EmptyState, LoadingState } from "@/components/ui";
 import { tokenSymbol, chainName, formatTokenAmount } from "@/lib/tokens";
+import { CONTRACTS } from "@/lib/contracts";
 import { useIntents, useBridgeStatus } from "@/lib/hooks";
 import Link from "next/link";
 import {
@@ -312,12 +313,12 @@ function DetailPanel({ intent }: { intent: IntentData }) {
       )}
 
       <a
-        href={`https://testnet.xdcscan.com/tx/${intent.intentId}`}
+        href={`https://testnet.xdcscan.com/address/${CONTRACTS.intentRegistry}`}
         target="_blank"
         rel="noopener noreferrer"
         className="mt-6 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold btn-secondary"
       >
-        View on Explorer <ExternalLink size={14} />
+        View Intent Registry <ExternalLink size={14} />
       </a>
     </motion.div>
   );

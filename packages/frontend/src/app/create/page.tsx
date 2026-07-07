@@ -83,7 +83,7 @@ export default function CreatePage() {
     try {
       const expirySeconds = expiryOptions.find((o) => o.value === expiry)?.seconds || 86400;
       const expiryTimestamp = Math.floor(Date.now() / 1000) + expirySeconds;
-      const nonce = Number(await sdk.getUserNonce(address)) + 1;
+      const nonce = (await sdk.getUserNonce(address)) + 1n;
 
       const sourceAmount = parseTokenAmount(fromAmount, fromToken.address);
       const minDestAmount = parseTokenAmount(minOutput, toToken.address);

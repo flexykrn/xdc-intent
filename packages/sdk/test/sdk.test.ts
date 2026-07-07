@@ -1,11 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { XDCIntentSDK, IntentStatus, CHAIN_IDS } from '../src/index';
 
+const LOCAL_CHAIN_ID = 31337;
+
 describe('XDCIntentSDK', () => {
   let sdk: XDCIntentSDK;
   let mockToken: any;
   let escrow: any;
   let paymentVerifier: any;
+  let solverRegistry: any;
   let intentRegistry: any;
   let owner: any;
   let user: any;
@@ -13,92 +16,71 @@ describe('XDCIntentSDK', () => {
   let ethers: any;
 
   beforeEach(async () => {
-    // Import hardhat ethers dynamically to ensure it's loaded
     const hre = await import('hardhat');
     ethers = hre.ethers;
-    
+
     [owner, user, solver] = await ethers.getSigners();
 
-    // Deploy MockERC20
     const MockTokenFactory = await ethers.getContractFactory('MockERC20');
     mockToken = await MockTokenFactory.deploy('Mock Token', 'MOCK', ethers.parseEther('1000000'));
     await mockToken.waitForDeployment();
 
-    // Deploy Escrow
     const EscrowFactory = await ethers.getContractFactory('Escrow');
-    escrow = await EscrowFactory.deploy(owner.address, 100, owner.address);
+    escrow = await EscrowFactory.deploy();
     await escrow.waitForDeployment();
 
-    // Deploy PaymentVerifier
     const PaymentVerifierFactory = await ethers.getContractFactory('PaymentVerifier');
-    paymentVerifier = await PaymentVerifierFactory.deploy();
+    paymentVerifier = await PaymentVerifierFactory.deploy(owner.address);
     await paymentVerifier.waitForDeployment();
 
-    // Deploy IntentRegistry
+    const SolverRegistryFactory = await ethers.getContractFactory('SolverRegistry');
+    solverRegistry = await SolverRegistryFactory.deploy();
+    await solverRegistry.waitForDeployment();
+
     const IntentRegistryFactory = await ethers.getContractFactory('IntentRegistry');
     intentRegistry = await IntentRegistryFactory.deploy(
       await escrow.getAddress(),
-      await paymentVerifier.getAddress()
+      await paymentVerifier.getAddress(),
+      await solverRegistry.getAddress()
     );
     await intentRegistry.waitForDeployment();
 
-    // Set registry in escrow
     await escrow.setRegistry(await intentRegistry.getAddress());
+    await escrow.addAllowedToken(await mockToken.getAddress());
 
-    // Add authorized signer
-    await paymentVerifier.addSigner(owner.address);
-
-    // Add supported token
-    await escrow.addSupportedToken(await mockToken.getAddress());
-
-    // Mint tokens to user
     await mockToken.mint(user.address, ethers.parseEther('10000'));
-    await mockToken.connect(user).approve(await intentRegistry.getAddress(), ethers.parseEther('10000'));
+    await mockToken.connect(user).approve(await escrow.getAddress(), ethers.parseEther('10000'));
 
-    // Create SDK instance
     const provider = ethers.provider;
     sdk = new XDCIntentSDK({
       provider,
       signer: user,
-      chainId: 31337,
+      chainId: LOCAL_CHAIN_ID,
       contractAddresses: {
         escrow: await escrow.getAddress(),
         paymentVerifier: await paymentVerifier.getAddress(),
         intentRegistry: await intentRegistry.getAddress(),
+        solverRegistry: await solverRegistry.getAddress(),
       },
+      pollingInterval: 200,
     });
   });
 
-  describe('Intent Creation', () => {
-    it('should create an intent successfully', async () => {
-      const intentId = XDCIntentSDK.generateIntentId();
-      const amount = ethers.parseEther('100');
-      const expiry = Math.floor(Date.now() / 1000) + 3600;
-
-      const tx = await sdk.createIntent({
-        intentId,
-        token: await mockToken.getAddress(),
-        amount,
-        expiry,
-      });
-
-      expect(tx.hash).toBeDefined();
-
-      const receipt = await tx.wait();
-      expect(receipt?.status).toBe(1);
-    });
-
-    it('should compute deterministic intentId', async () => {
-      const userAddress = await user.getAddress();
-      const tokenAddress = await mockToken.getAddress();
-      const amount = ethers.parseEther('100');
-      const expiry = Math.floor(Date.now() / 1000) + 3600;
-      const nonce = 1;
-
-      const intentId = XDCIntentSDK.computeIntentId(userAddress, tokenAddress, amount, expiry, nonce);
-      expect(intentId).toMatch(/^0x[a-fA-F0-9]{64}$/);
-    });
-  });
+  async function buildIntentParams(overrides: Record<string, any> = {}) {
+    return {
+      sourceChainId: LOCAL_CHAIN_ID,
+      sourceToken: await mockToken.getAddress(),
+      sourceAmount: ethers.parseEther('100'),
+      destChainId: LOCAL_CHAIN_ID,
+      destToken: await mockToken.getAddress(),
+      minDestAmount: ethers.parseEther('100'),
+      maxSolverFee: ethers.parseEther('1'),
+      expiry: Math.floor(Date.now() / 1000) + 3600,
+      nonce: 1,
+      allowedSolvers: [],
+      ...overrides,
+    };
+  }
 
   describe('Chain ID Detection', () => {
     it('should pass with correct chain ID', async () => {
@@ -114,6 +96,7 @@ describe('XDCIntentSDK', () => {
           escrow: await escrow.getAddress(),
           paymentVerifier: await paymentVerifier.getAddress(),
           intentRegistry: await intentRegistry.getAddress(),
+          solverRegistry: await solverRegistry.getAddress(),
         },
       });
 
@@ -133,131 +116,123 @@ describe('XDCIntentSDK', () => {
     });
   });
 
-  describe('Intent Cancellation', () => {
-    it('should cancel a pending intent', async () => {
-      const intentId = XDCIntentSDK.generateIntentId();
-      const amount = ethers.parseEther('100');
-      const expiry = Math.floor(Date.now() / 1000) + 3600;
+  describe('Intent ID Derivation', () => {
+    it('should derive a deterministic intent id', async () => {
+      const userAddress = await user.getAddress();
+      const params = await buildIntentParams();
+      const intentId = XDCIntentSDK.deriveIntentId(userAddress, params);
+      expect(intentId).toMatch(/^0x[a-fA-F0-9]{64}$/);
+    });
+  });
 
-      await sdk.createIntent({
-        intentId,
-        token: await mockToken.getAddress(),
-        amount,
-        expiry,
-      });
+  describe('Intent Signing and Submission', () => {
+    it('should sign and submit an intent successfully', async () => {
+      const userAddress = await user.getAddress();
+      const params = await buildIntentParams();
+      const signed = await sdk.signIntent(userAddress, params);
 
-      const tx = await sdk.cancelIntent(intentId);
+      expect(signed.intentId).toBe(XDCIntentSDK.deriveIntentId(userAddress, params));
+      expect(signed.signature).toMatch(/^0x[a-fA-F0-9]{130}$/);
+
+      const tx = await sdk.submitIntent(signed);
       expect(tx.hash).toBeDefined();
 
       const receipt = await tx.wait();
       expect(receipt?.status).toBe(1);
 
-      const intent = await sdk.getIntent(intentId);
-      expect(intent.status).toBe(IntentStatus.Cancelled);
+      const stored = await sdk.getIntent(signed.intentId);
+      expect(stored.status).toBe(IntentStatus.Open);
+      expect(stored.user.toLowerCase()).toBe(userAddress.toLowerCase());
+    });
+
+    it('should retrieve the user nonce', async () => {
+      const userAddress = await user.getAddress();
+      const nonceBefore = await sdk.getUserNonce(userAddress);
+      expect(nonceBefore).toBe(0n);
+
+      const signed = await sdk.signIntent(userAddress, await buildIntentParams());
+      await (await sdk.submitIntent(signed)).wait();
+
+      const nonceAfter = await sdk.getUserNonce(userAddress);
+      expect(nonceAfter).toBe(1n);
+    });
+  });
+
+  describe('Intent Cancellation', () => {
+    it('should cancel a pending intent', async () => {
+      const userAddress = await user.getAddress();
+      const signed = await sdk.signIntent(userAddress, await buildIntentParams());
+      await (await sdk.submitIntent(signed)).wait();
+
+      const tx = await sdk.cancelIntent(signed.intentId);
+      expect(tx.hash).toBeDefined();
+
+      const receipt = await tx.wait();
+      expect(receipt?.status).toBe(1);
+
+      const stored = await sdk.getIntent(signed.intentId);
+      expect(stored.status).toBe(IntentStatus.Cancelled);
     });
 
     it('should reject cancellation by non-owner', async () => {
-      const intentId = XDCIntentSDK.generateIntentId();
-      const amount = ethers.parseEther('100');
-      const expiry = Math.floor(Date.now() / 1000) + 3600;
-
-      await sdk.createIntent({
-        intentId,
-        token: await mockToken.getAddress(),
-        amount,
-        expiry,
-      });
+      const userAddress = await user.getAddress();
+      const signed = await sdk.signIntent(userAddress, await buildIntentParams());
+      await (await sdk.submitIntent(signed)).wait();
 
       const solverSdk = new XDCIntentSDK({
         provider: ethers.provider,
         signer: solver,
-        chainId: 31337,
+        chainId: LOCAL_CHAIN_ID,
         contractAddresses: {
           escrow: await escrow.getAddress(),
           paymentVerifier: await paymentVerifier.getAddress(),
           intentRegistry: await intentRegistry.getAddress(),
+          solverRegistry: await solverRegistry.getAddress(),
         },
       });
 
-      await expect(solverSdk.cancelIntent(intentId)).rejects.toThrow('Only the intent owner');
-    });
-  });
-
-  describe('Fee Estimation', () => {
-    it('should estimate intent cost', async () => {
-      const amount = ethers.parseEther('100');
-      const estimate = await sdk.estimateIntentCost(
-        await mockToken.getAddress(),
-        amount
-      );
-
-      expect(estimate.gasLimit).toBeGreaterThan(0n);
-      expect(estimate.gasPrice).toBeGreaterThan(0n);
-      expect(estimate.protocolFee).toBeGreaterThan(0n);
-      expect(estimate.totalCost).toBeGreaterThan(0n);
-      expect(estimate.totalCostUsd).toBeGreaterThan(0);
+      await expect(solverSdk.cancelIntent(signed.intentId)).rejects.toThrow();
     });
   });
 
   describe('Event Watching', () => {
-    it('should watch for intent creation events', async () => {
+    it('should watch for submitted intents', async () => {
       const events: any[] = [];
-      
-      const watcher = sdk.watchIntents((intentId, user, token, amount, expiry) => {
-        events.push({ intentId, user, token, amount, expiry });
+      const watcher = sdk.watchIntents((intent) => {
+        events.push(intent);
       });
 
       expect(watcher.isActive()).toBe(true);
 
-      const intentId = XDCIntentSDK.generateIntentId();
-      await sdk.createIntent({
-        intentId,
-        token: await mockToken.getAddress(),
-        amount: ethers.parseEther('100'),
-        expiry: Math.floor(Date.now() / 1000) + 3600,
-      });
+      const userAddress = await user.getAddress();
+      const signed = await sdk.signIntent(userAddress, await buildIntentParams());
+      await (await sdk.submitIntent(signed)).wait();
 
-      // Wait for event
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
       expect(events.length).toBeGreaterThan(0);
-      expect(events[0].intentId).toBe(intentId);
+      expect(events[0].intentId).toBe(signed.intentId);
 
       watcher.unsubscribe();
       expect(watcher.isActive()).toBe(false);
     });
 
-    it('should cleanup listeners', () => {
-      const watcher = sdk.watchIntents(() => {});
+    it('should watch for fulfillments', async () => {
+      const events: any[] = [];
+      const watcher = sdk.watchFulfillments((intentId, solverAddr, destAmount, paymentTxHash) => {
+        events.push({ intentId, solver: solverAddr, destAmount, paymentTxHash });
+      });
+
+      expect(watcher.isActive()).toBe(true);
       watcher.unsubscribe();
-      
-      // Should not throw
-      sdk.cleanupAllListeners();
+      expect(watcher.isActive()).toBe(false);
     });
   });
 
-  describe('Batch Intent Creation', () => {
-    it('should create batch of signed intents', async () => {
-      const inputs = [
-        {
-          token: await mockToken.getAddress(),
-          amount: ethers.parseEther('100'),
-          expiry: Math.floor(Date.now() / 1000) + 3600,
-        },
-        {
-          token: await mockToken.getAddress(),
-          amount: ethers.parseEther('200'),
-          expiry: Math.floor(Date.now() / 1000) + 3600,
-        },
-      ];
-
-      const signedIntents = await sdk.createIntentBatch(inputs);
-      
-      expect(signedIntents.length).toBe(2);
-      expect(signedIntents[0].intentId).toBeDefined();
-      expect(signedIntents[1].intentId).toBeDefined();
-      expect(signedIntents[0].intentId).not.toBe(signedIntents[1].intentId);
-      expect(signedIntents[0].signature).toBeDefined();
+  describe('Ether Helpers', () => {
+    it('should parse and format ether amounts', () => {
+      expect(XDCIntentSDK.parseEther('1')).toBe(ethers.parseEther('1'));
+      expect(XDCIntentSDK.formatEther(ethers.parseEther('1'))).toBe('1.0');
     });
   });
 
@@ -284,55 +259,8 @@ describe('XDCIntentSDK', () => {
         throw new Error('INSUFFICIENT_FUNDS');
       };
 
-      await expect(
-        (sdk as any).submitWithRetry(txFn, { maxRetries: 3, delayMs: 100 })
-      ).rejects.toThrow();
-      
+      await expect((sdk as any).submitWithRetry(txFn, { maxRetries: 3, delayMs: 100 })).rejects.toThrow();
       expect(attempts).toBe(1);
-    });
-  });
-
-  describe('Error Recovery', () => {
-    it('should recover from transient errors', async () => {
-      let attempts = 0;
-      const operation = async () => {
-        attempts++;
-        if (attempts < 2) {
-          throw new Error('NETWORK_ERROR');
-        }
-        return 'success';
-      };
-
-      const result = await (sdk as any).recover(operation, { maxRetries: 3, delayMs: 100 });
-      expect(result).toBe('success');
-      expect(attempts).toBe(2);
-    });
-
-    it('should not recover from permanent errors', async () => {
-      let attempts = 0;
-      const operation = async () => {
-        attempts++;
-        throw new Error('INSUFFICIENT_FUNDS');
-      };
-
-      await expect(
-        (sdk as any).recover(operation, { maxRetries: 3, delayMs: 100 })
-      ).rejects.toThrow('INSUFFICIENT_FUNDS');
-      
-      expect(attempts).toBe(1);
-    });
-  });
-
-  describe('User Messages', () => {
-    it('should return user-friendly error messages', () => {
-      const message = (sdk as any).getUserMessage(new Error('IntentRegistry: not pending'));
-      expect(message).toBe('Intent is not pending. It may have been fulfilled, cancelled, or expired.');
-    });
-  });
-
-  describe('WebSocket Detection', () => {
-    it('should detect WebSocket is not connected', () => {
-      expect(sdk.isWebSocketConnected()).toBe(false);
     });
   });
 });

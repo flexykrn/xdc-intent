@@ -87,3 +87,7 @@ coverage.json
 *.err
 packages/solver-b/data/
 
+# Conversation/docs scratchpad
+.hermes/
+.herm/
+.herm/

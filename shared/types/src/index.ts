@@ -13,7 +13,7 @@ export interface IntentParams {
   minDestAmount: bigint;
   maxSolverFee: bigint;
   expiry: number;
-  nonce: number;
+  nonce: bigint;
   allowedSolvers?: string[];
 }
 

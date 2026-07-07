@@ -12,11 +12,26 @@ export const CAIP2: Record<number, string> = {
   [CHAIN_IDS.SEPOLIA]: 'eip155:11155111',
 };
 
-export const CONTRACT_ADDRESSES: Record<number, { escrow: string; paymentVerifier: string; intentRegistry: string }> = {
+export const CONTRACT_ADDRESSES: Record<
+  number,
+  {
+    escrow: string;
+    paymentVerifier: string;
+    intentRegistry: string;
+    solverRegistry: string;
+    mockBridge: string;
+    mockUSDC: string;
+    mockXDC: string;
+  }
+> = {
   [CHAIN_IDS.XDC_APOTHEM]: {
-    escrow: '0xF5BDAA17e4cEA2bD6c19dea300Ff855db1E22288',
-    paymentVerifier: '0x31dFf11EC285ef4167133218bDE2DE8CCAeb36D6',
-    intentRegistry: '0x53d5bDe77bbeC1D0bE9dd0826b66deF2Af63dAA4',
+    escrow: '0x5c6fb5D7E81e11C303e5cE00fBE7AE748a47690d',
+    paymentVerifier: '0x6Ce223bD961217917aa16654E77A6A440f35A70A',
+    intentRegistry: '0x441f5e07E6FC807E73454B4318ba487e05e65625',
+    solverRegistry: '0x4F87a92E3950ec53AFC1776F14Af33c6E9aab360',
+    mockBridge: '0xB494122Fb840D928d0f0F98E69985a85E9EBC139',
+    mockUSDC: '0x86530A99784D188e8343e119140114d9e5fD0546',
+    mockXDC: '0xfe4E746cA450C46Fe6Ede5EAc184A7F2082B2312',
   },
 };
 

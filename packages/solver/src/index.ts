@@ -28,6 +28,7 @@ export class Solver {
   private isRunning: boolean = false;
   private retryInterval?: NodeJS.Timeout;
   private fulfillmentBreaker: CircuitBreaker;
+  private handlingIntents = new Set<string>();
 
   constructor() {
     this.config = loadConfig();
@@ -75,6 +76,9 @@ export class Solver {
     await this.watcher.start(async (intent) => this.handleIntent(intent));
 
     for (const intent of this.state.getPendingIntents()) {
+      if (this.state.isQuoted(intent.intentId) || this.handlingIntents.has(intent.intentId)) {
+        continue;
+      }
       await this.handleIntent({
         intentId: intent.intentId,
         user: intent.user,
@@ -100,6 +104,7 @@ export class Solver {
       if (!this.isRunning) return;
       const retryable = this.state.getRetryableIntents(Date.now(), this.config.maxRetries);
       for (const intent of retryable) {
+        if (this.handlingIntents.has(intent.intentId)) continue;
         this.logger.info(`Retrying intent ${intent.intentId} (attempt ${(intent.attempts || 0) + 1})`);
         await this.handleIntent({
           intentId: intent.intentId,
@@ -142,18 +147,20 @@ export class Solver {
 
   private async handleIntent(intent: IntentEvent): Promise<void> {
     if (!this.isRunning) return;
-
-    const stored = this.state.getIntent(intent.intentId);
-    if (stored?.status === 'completed' || stored?.status === 'failed') return;
-
-    this.state.logDecision({
-      timestamp: Date.now(),
-      intentId: intent.intentId,
-      decision: 'detected',
-      reason: `Detected at block ${intent.blockNumber}`,
-    });
+    if (this.handlingIntents.has(intent.intentId)) return;
+    this.handlingIntents.add(intent.intentId);
 
     try {
+      const stored = this.state.getIntent(intent.intentId);
+      if (stored?.status === 'completed' || stored?.status === 'failed') return;
+
+      this.state.logDecision({
+        timestamp: Date.now(),
+        intentId: intent.intentId,
+        decision: 'detected',
+        reason: `Detected at block ${intent.blockNumber}`,
+      });
+
       this.state.addPendingIntent({
         intentId: intent.intentId,
         user: intent.user,
@@ -272,6 +279,7 @@ export class Solver {
       const message = error?.message || 'Unknown error';
       const retriable = this.isRetriableError(message);
       if (retriable) {
+        const stored = this.state.getIntent(intent.intentId);
         const attempts = stored?.attempts || 0;
         const delay = Math.min(
           this.config.retryMaxDelayMs,
@@ -297,6 +305,8 @@ export class Solver {
         reason: message,
       });
       this.logger.error(`Error handling ${intent.intentId}:`, message);
+    } finally {
+      this.handlingIntents.delete(intent.intentId);
     }
   }
 
@@ -309,8 +319,7 @@ export class Solver {
       lower.includes('econnrefused') ||
       lower.includes('circuit breaker') ||
       lower.includes('gas price too high') ||
-      lower.includes('rate limit') ||
-      lower.includes('did not win quote competition')
+      lower.includes('rate limit')
     );
   }
 
