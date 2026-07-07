@@ -37,9 +37,9 @@ async function main() {
     user
   );
 
-  const sourceAmount = ethers.parseUnits("100", 6);
+  const sourceAmount = ethers.parseEther("100");
   const minDestAmount = ethers.parseEther("1900");
-  const maxSolverFee = ethers.parseUnits("2", 6);
+  const maxSolverFee = ethers.parseEther("2");
 
   console.log("Minting MockUSDC to user...");
   await (await mockUSDC.mint(user.address, sourceAmount)).wait();

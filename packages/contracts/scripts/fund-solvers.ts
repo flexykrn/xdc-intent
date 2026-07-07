@@ -17,7 +17,7 @@ async function main() {
 
   for (const solver of SOLVERS) {
     console.log(`Funding ${solver}...`);
-    let tx = await usdc.transfer(solver, ethers.parseUnits('5000', 6));
+    let tx = await usdc.transfer(solver, ethers.parseEther('5000'));
     await tx.wait();
     tx = await wxdc.transfer(solver, ethers.parseEther('100000'));
     await tx.wait();

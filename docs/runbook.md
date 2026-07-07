@@ -129,6 +129,10 @@ npx hardhat run scripts/e2e-cross-chain.ts --network apothem
 | Cross-chain (2026-07-06) | `0xe921dac5...4133a219` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `198.21` MXDC | — | — |
 | AI agent demo (2026-07-06) | `0xbe165976f566fc509aae1a382347d218edd2c10e5623869b3a40828e15af5939` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `219.78` MXDC | `0x9465e9b4228f71361f3051c4d7096212614dfa6c8169a6f2adc8e0496a3423e5` | — |
 | Cross-chain (2026-07-07) | `0x247a2a3d...b4554951` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `199.00` MXDC | `0x72094194...2f0efa4f` | `0x3d19ed9d...76648f7` |
+| Same-chain (2026-07-07) | `0xbd5188b2...e8b3e578` | `0x9f629D06...34AE1e16` | `200.00` MXDC | `0x3b8dbd79...dfdde6ed` | — |
+| Cross-chain (2026-07-07) | `0xfcfa747e...a6e49f5` | `0x9f629D06...34AE1e16` | `199.00` MXDC | `0x63c1193f...ee9fbb6` | — |
+
+**Note:** The on-chain `winner` in the latest two rows is the middleware facilitator signer (`0x9f629D06...34AE1e16`) because the middleware currently calls `IntentRegistry.fulfillIntent` with its own key. The actual winning solver is selected off-chain from the best quote.
 
 ## AI Agent Demo
 
