@@ -29,8 +29,7 @@ Explorer: https://testnet.xdcscan.com
 2. Copy `.env` values into:
    - `packages/contracts/.env`
    - `packages/middleware/.env`
-   - `packages/solver/.env`
-   - `packages/solver-b/.env`
+   - `packages/solver/.env` (or use `packages/solver/.env.solver-a` / `.env.solver-b` for multi-instance demos)
 
 ## Quick Start
 
@@ -57,11 +56,11 @@ npm start -w @xdc-intent/middleware
 
 # Terminal 2 — Solver A
 npm run build -w @xdc-intent/solver
-npm start -w @xdc-intent/solver
+npm run start:a -w @xdc-intent/solver
 
 # Terminal 3 — Solver B (competition)
-npm run build -w @xdc-intent/solver-b
-npm start -w @xdc-intent/solver-b
+npm run build -w @xdc-intent/solver
+npm run start:b -w @xdc-intent/solver
 
 # Terminal 4 — Frontend
 npm run dev -w frontend
@@ -190,7 +189,7 @@ Get-Process -Name node | ForEach-Object { Stop-Process -Id $_.Id -Force }
 ## Restart Procedure
 
 1. Stop the demo (`Ctrl+C` once if using `npm run demo`).
-2. Solver state is persisted to `packages/solver/data/solver-state.json` and `packages/solver-b/data/solver-state.json`.
+2. Solver state is persisted to `packages/solver/data/solver-state-a.json` and `packages/solver/data/solver-state-b.json`.
 3. Start again with `npm run demo`.
 4. Solvers will resume from the last processed block and re-evaluate any pending intents.
 

@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 import { Logger } from './logger';
 import { SolverConfig } from './config';
 import { IntentEvent } from './watcher';
-import { DEXAdapter, SwapQuote } from './adapters/dex';
+import { DEXAdapter, NATIVE_TOKEN_ADDRESS, SwapQuote } from './adapters/dex';
 
 import { BridgeAdapter } from './adapters/bridge';
 
@@ -24,7 +24,7 @@ export class IntentEvaluator {
     private provider: ethers.Provider,
     private dexAdapter: DEXAdapter,
     private bridgeAdapter: BridgeAdapter,
-    private gasPriceGwei: number = 0.05
+    private gasPriceOverrideGwei?: number
   ) {}
 
   async evaluate(intent: IntentEvent): Promise<EvaluationResult> {
@@ -66,22 +66,27 @@ export class IntentEvaluator {
       };
     }
 
-    const destDecimals = await this.getDecimals(intent.destToken);
-    const gasCost = this.estimateGasCost(quote.gasEstimate + (isCrossChain ? 120000n : 100000n));
-    const grossProfit = outputAmount - intent.minDestAmount;
-    const netProfit = grossProfit - gasCost - intent.maxSolverFee;
+    const gasLimit = quote.gasEstimate + (isCrossChain ? 120000n : 100000n);
+    const gasCostInDestToken = await this.estimateGasCostInDestToken(gasLimit, intent.destToken);
 
-    if (netProfit <= 0n) {
+    const minProfitBps = BigInt(this.config.minProfitBps);
+    const minProfitAmount = (intent.minDestAmount * minProfitBps) / 10000n;
+    const minNetOutput = intent.minDestAmount + minProfitAmount + gasCostInDestToken;
+
+    if (outputAmount < minNetOutput) {
+      const netProfit = outputAmount - gasCostInDestToken - intent.minDestAmount;
       return {
         shouldFulfill: false,
-        reason: `Not profitable after gas/fees. Net: ${netProfit}`,
+        reason: `Not profitable after gas/min profit. Net: ${netProfit}`,
         estimatedOutput: outputAmount,
       };
     }
 
+    const destDecimals = await this.getDecimals(intent.destToken);
+    const netProfit = outputAmount - gasCostInDestToken - intent.minDestAmount;
     const netProfitHuman = parseFloat(ethers.formatUnits(netProfit, destDecimals));
     const minDestHuman = parseFloat(ethers.formatUnits(intent.minDestAmount, destDecimals));
-    const profitPercent = (netProfitHuman / minDestHuman) * 100;
+    const profitPercent = minDestHuman > 0 ? (netProfitHuman / minDestHuman) * 100 : 0;
 
     if (profitPercent < this.config.minProfitMargin) {
       return {
@@ -102,6 +107,8 @@ export class IntentEvaluator {
   }
 
   private async getDecimals(token: string): Promise<number> {
+    if (token.toLowerCase() === NATIVE_TOKEN_ADDRESS.toLowerCase()) return 18;
+
     const cached = this.decimalsCache.get(token.toLowerCase());
     if (cached !== undefined) return cached;
 
@@ -116,8 +123,41 @@ export class IntentEvaluator {
     }
   }
 
-  private estimateGasCost(gasLimit: bigint): bigint {
-    const gasPrice = ethers.parseUnits(this.gasPriceGwei.toString(), 'gwei');
-    return gasLimit * gasPrice;
+  private async estimateGasCostInDestToken(gasLimit: bigint, destToken: string): Promise<bigint> {
+    const gasPriceWei = await this.getGasPriceWei();
+    const gasCostNative = gasLimit * gasPriceWei;
+
+    if (destToken.toLowerCase() === NATIVE_TOKEN_ADDRESS.toLowerCase()) {
+      return gasCostNative;
+    }
+
+    try {
+      const gasCostInDest = await this.dexAdapter.quoteNativeToDest(gasCostNative, destToken);
+      if (gasCostInDest > 0n) {
+        return gasCostInDest;
+      }
+    } catch (error: any) {
+      this.logger.warn(`Native→dest gas quote failed: ${error.message}`);
+    }
+
+    this.logger.debug(`No native→dest gas quote available; skipping gas cost conversion for ${destToken}`);
+    return 0n;
+  }
+
+  private async getGasPriceWei(): Promise<bigint> {
+    if (this.gasPriceOverrideGwei !== undefined && this.gasPriceOverrideGwei > 0) {
+      return ethers.parseUnits(this.gasPriceOverrideGwei.toString(), 'gwei');
+    }
+
+    try {
+      const feeData = await this.provider.getFeeData();
+      if (feeData.gasPrice && feeData.gasPrice > 0n) {
+        return feeData.gasPrice;
+      }
+    } catch (error: any) {
+      this.logger.warn(`Failed to fetch gas price: ${error.message}`);
+    }
+
+    return ethers.parseUnits(this.config.gasPriceFallbackGwei.toString(), 'gwei');
   }
 }

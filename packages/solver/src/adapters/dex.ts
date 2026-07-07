@@ -1,5 +1,7 @@
 import { ethers } from 'ethers';
 
+export const NATIVE_TOKEN_ADDRESS = '0x0000000000000000000000000000000000000000';
+
 export interface SwapQuote {
   inputToken: string;
   outputToken: string;
@@ -11,6 +13,7 @@ export interface SwapQuote {
 
 export interface DEXAdapter {
   getQuote(inputToken: string, outputToken: string, inputAmount: bigint): Promise<SwapQuote>;
+  quoteNativeToDest(nativeAmount: bigint, destToken: string): Promise<bigint>;
   executeSwap(quote: SwapQuote, signer: ethers.Signer): Promise<ethers.TransactionResponse>;
 }
 
@@ -51,6 +54,10 @@ export class XSwapV3Adapter implements DEXAdapter {
       exchangeRate: Number(amountOut) / Number(inputAmount),
       gasEstimate: 200000n,
     };
+  }
+
+  async quoteNativeToDest(nativeAmount: bigint, destToken: string): Promise<bigint> {
+    return 0n;
   }
 
   async executeSwap(quote: SwapQuote, signer: ethers.Signer): Promise<ethers.TransactionResponse> {
@@ -100,6 +107,19 @@ export class SimpleDEXAdapter implements DEXAdapter {
     };
   }
 
+  async quoteNativeToDest(nativeAmount: bigint, destToken: string): Promise<bigint> {
+    try {
+      const weth = await (this.router as any).WETH();
+      if (!weth || weth.toLowerCase() === destToken.toLowerCase()) {
+        return nativeAmount;
+      }
+      const amounts = await this.router.getAmountsOut(nativeAmount, [weth, destToken]);
+      return amounts[amounts.length - 1];
+    } catch {
+      return 0n;
+    }
+  }
+
   async executeSwap(quote: SwapQuote, signer: ethers.Signer): Promise<ethers.TransactionResponse> {
     const routerWithSigner = this.router.connect(signer);
     const deadline = Math.floor(Date.now() / 1000) + 300;
@@ -118,6 +138,7 @@ export class SimpleDEXAdapter implements DEXAdapter {
 export class MockDEXAdapter implements DEXAdapter {
   private rates = new Map<string, number>([
     ['XDC-USDC', 0.05],
+    ['XDC-MXDC', 1],
     ['USDC-XDC', 20],
     ['USDC-USDT', 1],
     ['USDC-MXDC', 20],
@@ -125,6 +146,7 @@ export class MockDEXAdapter implements DEXAdapter {
   ]);
 
   private tokenSymbols = new Map<string, string>([
+    [NATIVE_TOKEN_ADDRESS.toLowerCase(), 'XDC'],
     ['0x86530a99784d188e8343e119140114d9e5fd0546', 'USDC'],
     ['0xfe4e746ca450c46fe6ede5eac184a7f2082b2312', 'MXDC'],
   ]);
@@ -156,6 +178,18 @@ export class MockDEXAdapter implements DEXAdapter {
       exchangeRate: rate,
       gasEstimate: 150000n,
     };
+  }
+
+  async quoteNativeToDest(nativeAmount: bigint, destToken: string): Promise<bigint> {
+    if (destToken.toLowerCase() === NATIVE_TOKEN_ADDRESS.toLowerCase()) {
+      return nativeAmount;
+    }
+    const outSym = this.tokenSymbols.get(destToken.toLowerCase()) || destToken;
+    const pair = `XDC-${outSym}`;
+    const rate = this.rates.get(pair);
+    if (!rate) return 0n;
+    const fee = nativeAmount / 1000n;
+    return ((nativeAmount - fee) * BigInt(Math.floor(rate * 1000))) / 1000n;
   }
 
   async executeSwap(quote: SwapQuote, signer: ethers.Signer): Promise<ethers.TransactionResponse> {

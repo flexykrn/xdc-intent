@@ -48,7 +48,14 @@ export class Solver {
     this.evaluator = new IntentEvaluator(this.config, this.logger, this.provider, this.dexAdapter, this.bridgeAdapter);
     this.facilitator = new FacilitatorClient(this.config, this.logger);
     this.submitter = new TransactionSubmitter(this.config, this.logger);
-    this.inventory = new InventoryTracker(this.provider, this.submitter.getAddress());
+
+    const inventoryProviders = new Map<number, ethers.Provider>();
+    for (const chainId of this.config.supportedChains) {
+      const chainRpcUrl = this.config.chainRpcUrls[chainId.toString()];
+      inventoryProviders.set(chainId, chainRpcUrl ? new ethers.JsonRpcProvider(chainRpcUrl) : this.provider);
+    }
+    this.inventory = new InventoryTracker(inventoryProviders, this.submitter.getAddress());
+
     this.fulfillmentBreaker = new CircuitBreaker('fulfillment', DEFAULT_CIRCUIT_BREAKER_CONFIG, this.logger);
   }
 
@@ -197,23 +204,23 @@ export class Solver {
           return;
         }
         outputAmount = evaluation.estimatedOutput!;
+      }
 
-        if (intent.destChainId === this.config.chainId) {
-          const hasInventory = await this.inventory.hasSufficientBalance(intent.destChainId, intent.destToken, outputAmount);
-          if (!hasInventory) {
-            this.logger.warn(`Insufficient inventory for ${intent.intentId}`);
-            this.state.logDecision({
-              timestamp: Date.now(),
-              intentId: intent.intentId,
-              decision: 'skipped',
-              reason: 'Insufficient inventory',
-              metadata: outputAmount.toString(),
-            });
-            this.state.markFailed(intent.intentId);
-            return;
-          }
-        }
+      const hasInventory = await this.inventory.hasSufficientBalance(intent.destChainId, intent.destToken, outputAmount);
+      if (!hasInventory) {
+        this.logger.warn(`Insufficient inventory on chain ${intent.destChainId} for ${intent.intentId}`);
+        this.state.logDecision({
+          timestamp: Date.now(),
+          intentId: intent.intentId,
+          decision: 'skipped',
+          reason: `Insufficient inventory on chain ${intent.destChainId}`,
+          metadata: outputAmount.toString(),
+        });
+        this.state.markFailed(intent.intentId);
+        return;
+      }
 
+      if (!stored?.quoted || !stored.outputAmount) {
         const quoteSignature = await this.signQuote(intent.intentId, outputAmount);
         const quoteResult = await this.facilitator.submitQuote({
           intentId: intent.intentId,
@@ -416,43 +423,79 @@ export class Solver {
   }
 
   private async rebalanceCrossChain(intent: IntentEvent): Promise<void> {
-    if (!this.config.bridgeAddress) return;
+    if (intent.sourceChainId === intent.destChainId || !this.config.bridgeAddress) return;
+
+    const hasSourceTokens = await this.inventory.hasSufficientBalance(
+      intent.sourceChainId,
+      intent.sourceToken,
+      intent.sourceAmount
+    );
+    if (!hasSourceTokens) {
+      this.logger.warn(
+        `Cannot rebalance ${intent.intentId}: solver does not have ${intent.sourceAmount} ${intent.sourceToken} on chain ${intent.sourceChainId}`
+      );
+      return;
+    }
+
     try {
-      const wallet = this.submitter.getSigner() as ethers.Wallet;
-      const token = new ethers.Contract(
-        intent.sourceToken,
-        ['function approve(address spender, uint256 amount) external returns (bool)'],
-        wallet
-      );
-      const bridge = new ethers.Contract(
-        this.config.bridgeAddress,
-        ['function bridgeOut(bytes32 intentId, address token, uint256 amount, uint256 destChainId) external'],
-        wallet
-      );
+      const sourceProvider = this.inventory.getProvider(intent.sourceChainId) ?? this.provider;
+      const sourceWallet = new ethers.Wallet(this.config.privateKey, sourceProvider);
 
-      this.logger.info(`Rebalancing cross-chain intent ${intent.intentId}`);
-      const approveTx = await (token as any).approve(this.config.bridgeAddress, intent.sourceAmount);
-      await approveTx.wait();
-
-      const bridgeTx = await (bridge as any).bridgeOut(
+      this.logger.info(
+        `Rebalancing cross-chain intent ${intent.intentId}: bridging ${intent.sourceAmount} ${intent.sourceToken} from chain ${intent.sourceChainId} to chain ${intent.destChainId}`
+      );
+      await this.approveToken(intent.sourceToken, this.config.bridgeAddress, intent.sourceAmount, sourceWallet);
+      const bridgeTxHash = await this.bridgeSourceTokens(
         intent.intentId,
         intent.sourceToken,
         intent.sourceAmount,
-        intent.destChainId
+        intent.destChainId,
+        sourceWallet
       );
-      await bridgeTx.wait();
 
       this.state.logDecision({
         timestamp: Date.now(),
         intentId: intent.intentId,
         decision: 'succeeded',
         reason: `Rebalanced via MockBridge`,
-        metadata: bridgeTx.hash,
+        metadata: bridgeTxHash,
       });
-      this.logger.info(`Rebalanced ${intent.intentId} via MockBridge: ${bridgeTx.hash}`);
+      this.logger.info(`Rebalanced ${intent.intentId} via MockBridge: ${bridgeTxHash}`);
     } catch (error: any) {
       this.logger.warn(`Rebalance failed for ${intent.intentId}: ${error.message}`);
     }
+  }
+
+  private async approveToken(
+    tokenAddress: string,
+    spender: string,
+    amount: bigint,
+    signer: ethers.Signer
+  ): Promise<void> {
+    const token = new ethers.Contract(
+      tokenAddress,
+      ['function approve(address spender, uint256 amount) external returns (bool)'],
+      signer
+    );
+    const tx = await (token as any).approve(spender, amount);
+    await tx.wait();
+  }
+
+  private async bridgeSourceTokens(
+    intentId: string,
+    token: string,
+    amount: bigint,
+    destChainId: number,
+    signer: ethers.Signer
+  ): Promise<string> {
+    const bridge = new ethers.Contract(
+      this.config.bridgeAddress!,
+      ['function bridgeOut(bytes32 intentId, address token, uint256 amount, uint256 destChainId) external'],
+      signer
+    );
+    const tx = await (bridge as any).bridgeOut(intentId, token, amount, destChainId);
+    await tx.wait();
+    return tx.hash;
   }
 
   stop(): void {

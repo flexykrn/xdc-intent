@@ -14,15 +14,32 @@ const ERC20_ABI = [
 ];
 
 export class InventoryTracker {
+  private providers = new Map<number, ethers.Provider>();
+  private defaultProvider?: ethers.Provider;
   private cache = new Map<string, TokenBalance>();
   private ttlMs: number;
 
+  constructor(provider: ethers.Provider, ownerAddress: string, ttlMs?: number);
+  constructor(providers: Map<number, ethers.Provider>, ownerAddress: string, ttlMs?: number);
   constructor(
-    private provider: ethers.Provider,
+    providers: Map<number, ethers.Provider> | ethers.Provider,
     private ownerAddress: string,
     ttlMs = 10000
   ) {
     this.ttlMs = ttlMs;
+    if (providers instanceof Map) {
+      providers.forEach((provider, chainId) => this.providers.set(chainId, provider));
+    } else {
+      this.defaultProvider = providers;
+    }
+  }
+
+  addProvider(chainId: number, provider: ethers.Provider): void {
+    this.providers.set(chainId, provider);
+  }
+
+  getProvider(chainId: number): ethers.Provider | undefined {
+    return this.providers.get(chainId) ?? this.defaultProvider;
   }
 
   private cacheKey(chainId: number, token: string): string {
@@ -37,7 +54,11 @@ export class InventoryTracker {
     }
 
     try {
-      const tokenContract = new ethers.Contract(token, ERC20_ABI, this.provider);
+      const provider = this.getProvider(chainId);
+      if (!provider) {
+        throw new Error(`No provider configured for chain ${chainId}`);
+      }
+      const tokenContract = new ethers.Contract(token, ERC20_ABI, provider);
       const [balance, decimals] = await Promise.all([
         tokenContract.balanceOf(this.ownerAddress),
         tokenContract.decimals(),

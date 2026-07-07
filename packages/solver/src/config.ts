@@ -20,6 +20,8 @@ export const SolverConfigSchema = z.object({
   httpPort: z.number().int().positive(),
   pollingInterval: z.number().int().positive(),
   minProfitMargin: z.number().min(0).max(100),
+  minProfitBps: z.number().int().min(0).max(10000).default(10),
+  gasPriceFallbackGwei: z.number().positive().default(12.5),
   maxSlippage: z.number().min(0).max(100),
   maxGasPriceGwei: z.number().positive(),
   supportedTokens: z.array(z.string()),
@@ -27,6 +29,9 @@ export const SolverConfigSchema = z.object({
   solverName: z.string().min(1),
   solverFeeBps: z.number().int().min(0).max(10000),
   supportedChains: z.array(z.number().int().positive()),
+  // Per-chain RPC URLs. For mocked cross-chain setups (e.g. Apothem + MockL2 on the same RPC),
+  // leaving this empty causes every supported chain to fall back to rpcUrl.
+  chainRpcUrls: z.record(z.string(), z.string().url()).default({}),
   bridgeAddress: z.string().regex(/^$|^0x[a-fA-F0-9]{40}$/).transform((v) => v || undefined),
   minDestAmount: z.number().min(0).max(1),
   minSourceAmount: z.number().min(0).default(0.001),
@@ -54,6 +59,8 @@ export function loadConfig(): SolverConfig {
     httpPort: parseInt(process.env.HTTP_PORT || '3001'),
     pollingInterval: parseInt(process.env.POLLING_INTERVAL_MS || '5000'),
     minProfitMargin: parseFloat(process.env.MIN_PROFIT_MARGIN || '0.5'),
+    minProfitBps: parseInt(process.env.MIN_PROFIT_BPS || '10', 10),
+    gasPriceFallbackGwei: parseFloat(process.env.GAS_PRICE_FALLBACK_GWEI || '12.5'),
     maxSlippage: parseFloat(process.env.MAX_SLIPPAGE || '1.0'),
     maxGasPriceGwei: parseFloat(process.env.MAX_GAS_PRICE_GWEI || '50'),
     supportedTokens: (process.env.SUPPORTED_TOKENS || 'USDC,USDT,XDC').split(',').map((t) => t.trim()),
@@ -61,6 +68,13 @@ export function loadConfig(): SolverConfig {
     solverName: process.env.SOLVER_NAME || 'XDC-Solver',
     solverFeeBps: parseInt(process.env.SOLVER_FEE_BPS || '30'),
     supportedChains: (process.env.SUPPORTED_CHAINS || '51').split(',').map((c) => parseInt(c.trim(), 10)).filter(Boolean),
+    chainRpcUrls: (() => {
+      try {
+        return process.env.CHAIN_RPC_URLS ? JSON.parse(process.env.CHAIN_RPC_URLS) : {};
+      } catch {
+        return {};
+      }
+    })(),
     bridgeAddress: process.env.BRIDGE_ADDRESS,
     minDestAmount: parseFloat(process.env.MIN_DEST_AMOUNT || '0.95'),
     minSourceAmount: parseFloat(process.env.MIN_SOURCE_AMOUNT || '0.001'),

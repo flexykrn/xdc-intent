@@ -13,6 +13,8 @@ coverage/
 .env
 .env.local
 .env.*.local
+packages/solver/.env.solver-a
+packages/solver/.env.solver-b
 
 # IDE
 .vscode/
@@ -85,7 +87,6 @@ coverage.json
 
 # Demo/keeper logs
 *.err
-packages/solver-b/data/
 
 # Conversation/docs scratchpad
 .hermes/

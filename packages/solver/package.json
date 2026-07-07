@@ -8,6 +8,10 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
+    "dev:a": "env-cmd -f .env.solver-a ts-node src/index.ts",
+    "dev:b": "env-cmd -f .env.solver-b ts-node src/index.ts",
+    "start:a": "env-cmd -f .env.solver-a node dist/index.js",
+    "start:b": "env-cmd -f .env.solver-b node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
@@ -27,7 +31,8 @@
     "typescript": "^5.3.3",
     "@types/node": "^20.10.0",
     "vitest": "^1.2.0",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "env-cmd": "^10.1.0"
   },
   "keywords": ["xdc", "intent", "solver", "market-maker", "trading"],
   "license": "MIT"
