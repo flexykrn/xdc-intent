@@ -4,7 +4,7 @@ import { useWallet } from "@/components/providers";
 import PageContainer from "@/components/PageContainer";
 import { SectionHeader, Badge, TokenSymbol, EmptyState, LoadingState } from "@/components/ui";
 import { tokenSymbol, chainName, formatTokenAmount, explorerUrl } from "@/lib/tokens";
-import { CONTRACTS } from "@/lib/contracts";
+import { getContractAddresses } from "@/lib/contracts";
 import { useIntents, useBridgeStatus } from "@/lib/hooks";
 import Link from "next/link";
 import {
@@ -127,13 +127,13 @@ export default function MyIntentsPage() {
                     <StatusBadge status={intent.status} />
                     <div>
                       <div className="flex items-center gap-2 text-[var(--ink)] font-medium">
-                        <TokenSymbol symbol={tokenSymbol(intent.sourceToken)} />
+                        <TokenSymbol symbol={tokenSymbol(intent.sourceToken, intent.sourceChainId)} />
                         <ArrowRight size={14} className="text-[var(--ink-3)]" />
-                        <TokenSymbol symbol={tokenSymbol(intent.destToken)} />
+                        <TokenSymbol symbol={tokenSymbol(intent.destToken, intent.destChainId)} />
                       </div>
                       <div className="text-[11px] text-[var(--ink-3)] mt-1">
-                        {formatTokenAmount(intent.sourceAmount, intent.sourceToken)} → min{" "}
-                        {formatTokenAmount(intent.minDestAmount, intent.destToken)} ·{" "}
+                        {formatTokenAmount(intent.sourceAmount, intent.sourceToken, intent.sourceChainId)} → min{" "}
+                        {formatTokenAmount(intent.minDestAmount, intent.destToken, intent.destChainId)} ·{" "}
                         {chainName(intent.sourceChainId)} → {chainName(intent.destChainId)}
                       </div>
                     </div>
@@ -206,6 +206,8 @@ function DetailPanel({ intent }: { intent: IntentData }) {
       : []),
   ];
 
+  const registryAddress = getContractAddresses(intent.sourceChainId).intentRegistry;
+
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -225,11 +227,11 @@ function DetailPanel({ intent }: { intent: IntentData }) {
         />
         <DetailRow
           label="You send"
-          value={`${formatTokenAmount(intent.sourceAmount, intent.sourceToken)} ${tokenSymbol(intent.sourceToken)}`}
+          value={`${formatTokenAmount(intent.sourceAmount, intent.sourceToken, intent.sourceChainId)} ${tokenSymbol(intent.sourceToken, intent.sourceChainId)}`}
         />
         <DetailRow
           label="Minimum receive"
-          value={`${formatTokenAmount(intent.minDestAmount, intent.destToken)} ${tokenSymbol(intent.destToken)}`}
+          value={`${formatTokenAmount(intent.minDestAmount, intent.destToken, intent.destChainId)} ${tokenSymbol(intent.destToken, intent.destChainId)}`}
         />
         <DetailRow
           label="Route"
@@ -239,7 +241,7 @@ function DetailPanel({ intent }: { intent: IntentData }) {
           <>
             <DetailRow
               label="Filled amount"
-              value={`${formatTokenAmount(intent.fulfilledAmount, intent.destToken)} ${tokenSymbol(intent.destToken)}`}
+              value={`${formatTokenAmount(intent.fulfilledAmount, intent.destToken, intent.destChainId)} ${tokenSymbol(intent.destToken, intent.destChainId)}`}
             />
             <DetailRow
               label="Solver"
@@ -296,13 +298,13 @@ function DetailPanel({ intent }: { intent: IntentData }) {
               </Badge>
               {bridgeStatus.locked && (
                 <span className="text-[11px] text-[var(--ink-3)]">
-                  {formatTokenAmount(bridgeStatus.lockedAmount, bridgeStatus.lockedToken)} {tokenSymbol(bridgeStatus.lockedToken)} locked
+                  {formatTokenAmount(bridgeStatus.lockedAmount, bridgeStatus.lockedToken, bridgeStatus.sourceChainId)} {tokenSymbol(bridgeStatus.lockedToken, bridgeStatus.sourceChainId)} locked
                 </span>
               )}
               {bridgeStatus.minted && (
                 <span className="text-[11px] text-[var(--ink-3)]">
-                  {formatTokenAmount(bridgeStatus.mintedAmount, bridgeStatus.mintedToken || bridgeStatus.lockedToken)}{" "}
-                  {tokenSymbol(bridgeStatus.mintedToken || bridgeStatus.lockedToken)} minted
+                  {formatTokenAmount(bridgeStatus.mintedAmount, bridgeStatus.mintedToken || bridgeStatus.lockedToken, bridgeStatus.destChainId)}{" "}
+                  {tokenSymbol(bridgeStatus.mintedToken || bridgeStatus.lockedToken, bridgeStatus.destChainId)} minted
                 </span>
               )}
             </div>
@@ -338,7 +340,7 @@ function DetailPanel({ intent }: { intent: IntentData }) {
       )}
 
       <a
-        href={`https://testnet.xdcscan.com/address/${CONTRACTS.intentRegistry}`}
+        href={explorerUrl(intent.sourceChainId, "address", registryAddress)}
         target="_blank"
         rel="noopener noreferrer"
         className="mt-6 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold btn-secondary"

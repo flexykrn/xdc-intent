@@ -52,8 +52,8 @@ export default function MarketPage() {
         const term = search.toLowerCase();
         return (
           intent.intentId.toLowerCase().includes(term) ||
-          tokenSymbol(intent.sourceToken).toLowerCase().includes(term) ||
-          tokenSymbol(intent.destToken).toLowerCase().includes(term)
+          tokenSymbol(intent.sourceToken, intent.sourceChainId).toLowerCase().includes(term) ||
+          tokenSymbol(intent.destToken, intent.destChainId).toLowerCase().includes(term)
         );
       }
       return true;
@@ -194,14 +194,14 @@ function IntentCard({ intent, index }: { intent: IntentData; index: number }) {
       <div className="flex items-center gap-3 mb-5">
         <div className="flex-1 p-3 rounded-xl bg-[var(--bg-3)]">
           <div className="text-xs text-[var(--ink-3)] mb-1">Send</div>
-          <div className="text-lg font-semibold font-mono-nums">{formatTokenAmount(intent.sourceAmount, intent.sourceToken)}</div>
-          <TokenSymbol symbol={tokenSymbol(intent.sourceToken)} className="mt-1" />
+          <div className="text-lg font-semibold font-mono-nums">{formatTokenAmount(intent.sourceAmount, intent.sourceToken, intent.sourceChainId)}</div>
+          <TokenSymbol symbol={tokenSymbol(intent.sourceToken, intent.sourceChainId)} className="mt-1" />
         </div>
         <ArrowRight className="w-5 h-5 text-[var(--ink-3)]" />
         <div className="flex-1 p-3 rounded-xl bg-[var(--bg-3)]">
           <div className="text-xs text-[var(--ink-3)] mb-1">Receive min</div>
-          <div className="text-lg font-semibold font-mono-nums">{formatTokenAmount(intent.minDestAmount, intent.destToken)}</div>
-          <TokenSymbol symbol={tokenSymbol(intent.destToken)} className="mt-1" />
+          <div className="text-lg font-semibold font-mono-nums">{formatTokenAmount(intent.minDestAmount, intent.destToken, intent.destChainId)}</div>
+          <TokenSymbol symbol={tokenSymbol(intent.destToken, intent.destChainId)} className="mt-1" />
         </div>
       </div>
 
@@ -211,7 +211,7 @@ function IntentCard({ intent, index }: { intent: IntentData; index: number }) {
             <div>
               <div className="text-xs text-[var(--ink-3)] mb-1">Filled by {truncateAddress(intent.solver, 4, 4)}</div>
               <div className="text-emerald-600 font-semibold text-lg">
-                {formatTokenAmount(intent.fulfilledAmount, intent.destToken)} {tokenSymbol(intent.destToken)}
+                {formatTokenAmount(intent.fulfilledAmount, intent.destToken, intent.destChainId)} {tokenSymbol(intent.destToken, intent.destChainId)}
               </div>
             </div>
             <Badge variant="success">Filled</Badge>
@@ -258,7 +258,7 @@ function QuoteRow({ quote, intent, rank }: { quote: Quote; intent: IntentData; r
         <span className="text-[10px] text-[var(--ink-3)]">{(quote.feeBps / 100).toFixed(2)}% fee</span>
       </div>
       <div className={`text-sm font-semibold font-mono-nums ${isWinner ? "text-emerald-600" : "text-[var(--ink)]"}`}>
-        {formatTokenAmount(quote.outputAmount, intent.destToken)} {tokenSymbol(intent.destToken)}
+        {formatTokenAmount(quote.outputAmount, intent.destToken, intent.destChainId)} {tokenSymbol(intent.destToken, intent.destChainId)}
       </div>
     </div>
   );

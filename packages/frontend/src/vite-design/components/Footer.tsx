@@ -13,8 +13,8 @@ export default function Footer() {
           </div>
 
           <div className="flex items-center gap-6">
-            <Link href="/create" className="text-[13px] text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors">
-              Swap
+            <Link href="/agent" className="text-[13px] text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors">
+              Agent
             </Link>
             <Link href="/my-intents" className="text-[13px] text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors">
               My Intents

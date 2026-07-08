@@ -81,13 +81,13 @@ export default function HomePage() {
               </p>
 
               <div className="flex flex-wrap items-center gap-3 mb-10">
-                <Link href="/create">
+                <Link href="/agent">
                   <motion.button
                     className="group inline-flex items-center gap-2 px-7 py-4 rounded-full text-[14px] font-semibold btn-primary"
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                   >
-                    {isConnected ? "Create Intent" : "Connect & Trade"}
+                    {isConnected ? "Ask Agent" : "Connect & Trade"}
                     <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
                   </motion.button>
                 </Link>
@@ -329,13 +329,13 @@ export default function HomePage() {
               <p className="text-lg text-white/70 max-w-xl mx-auto mb-8">
                 Experience the first intent-based swap protocol purpose-built for XDC Network.
               </p>
-              <Link href="/create">
+              <Link href="/agent">
                 <motion.button
                   className="inline-flex items-center gap-2 px-8 py-4 rounded-full bg-white text-[var(--ink)] text-[14px] font-semibold hover:shadow-[0_20px_50px_-10px_rgba(0,0,0,0.4)] transition-shadow"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
-                  Create Your First Intent <ArrowRight size={16} />
+                  Ask Your First Agent <ArrowRight size={16} />
                 </motion.button>
               </Link>
             </div>

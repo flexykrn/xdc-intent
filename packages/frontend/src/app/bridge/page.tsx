@@ -167,17 +167,17 @@ function BridgeRow({
       </td>
       <td className="px-5 py-4">
         <div className="flex items-center gap-2">
-          <TokenSymbol symbol={tokenSymbol(intent.sourceToken)} className="shrink-0" />
+          <TokenSymbol symbol={tokenSymbol(intent.sourceToken, intent.sourceChainId)} className="shrink-0" />
           <span className="text-sm font-medium text-[var(--ink)]">
-            {formatTokenAmount(intent.sourceAmount, intent.sourceToken)}
+            {formatTokenAmount(intent.sourceAmount, intent.sourceToken, intent.sourceChainId)}
           </span>
         </div>
       </td>
       <td className="px-5 py-4">
         <div className="flex items-center gap-2">
-          <TokenSymbol symbol={tokenSymbol(intent.destToken)} className="shrink-0" />
+          <TokenSymbol symbol={tokenSymbol(intent.destToken, intent.destChainId)} className="shrink-0" />
           <span className="text-sm font-medium text-[var(--ink)]">
-            {formatTokenAmount(intent.minDestAmount, intent.destToken)}
+            {formatTokenAmount(intent.minDestAmount, intent.destToken, intent.destChainId)}
           </span>
         </div>
       </td>
@@ -231,16 +231,16 @@ function BridgeCard({
         <div className="flex-1">
           <div className="text-[11px] text-[var(--ink-3)] mb-1">From {chainName(intent.sourceChainId)}</div>
           <div className="flex items-center gap-2">
-            <TokenSymbol symbol={tokenSymbol(intent.sourceToken)} />
-            <span className="font-medium text-[var(--ink)]">{formatTokenAmount(intent.sourceAmount, intent.sourceToken)}</span>
+            <TokenSymbol symbol={tokenSymbol(intent.sourceToken, intent.sourceChainId)} />
+            <span className="font-medium text-[var(--ink)]">{formatTokenAmount(intent.sourceAmount, intent.sourceToken, intent.sourceChainId)}</span>
           </div>
         </div>
         <ArrowRight size={16} className="text-[var(--ink-3)]" />
         <div className="flex-1 text-right">
           <div className="text-[11px] text-[var(--ink-3)] mb-1">To {chainName(intent.destChainId)}</div>
           <div className="flex items-center justify-end gap-2">
-            <span className="font-medium text-[var(--ink)]">{formatTokenAmount(intent.minDestAmount, intent.destToken)}</span>
-            <TokenSymbol symbol={tokenSymbol(intent.destToken)} />
+            <span className="font-medium text-[var(--ink)]">{formatTokenAmount(intent.minDestAmount, intent.destToken, intent.destChainId)}</span>
+            <TokenSymbol symbol={tokenSymbol(intent.destToken, intent.destChainId)} />
           </div>
         </div>
       </div>
@@ -398,13 +398,13 @@ function DetailPanel({ intent, onClose }: { intent: IntentData; onClose: () => v
             <div className="flex items-center justify-between">
               <span className="text-[11px] uppercase tracking-wider text-[var(--ink-3)]">You send</span>
               <span className="text-sm font-medium text-[var(--ink)]">
-                {formatTokenAmount(intent.sourceAmount, intent.sourceToken)} {tokenSymbol(intent.sourceToken)}
+                {formatTokenAmount(intent.sourceAmount, intent.sourceToken, intent.sourceChainId)} {tokenSymbol(intent.sourceToken, intent.sourceChainId)}
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[11px] uppercase tracking-wider text-[var(--ink-3)]">Minimum receive</span>
               <span className="text-sm font-medium text-[var(--ink)]">
-                {formatTokenAmount(intent.minDestAmount, intent.destToken)} {tokenSymbol(intent.destToken)}
+                {formatTokenAmount(intent.minDestAmount, intent.destToken, intent.destChainId)} {tokenSymbol(intent.destToken, intent.destChainId)}
               </span>
             </div>
           </div>
@@ -445,8 +445,8 @@ function DetailPanel({ intent, onClose }: { intent: IntentData; onClose: () => v
                   <div className="text-sm text-[var(--ink-2)]">
                     Locked{" "}
                     <span className="font-medium text-[var(--ink)]">
-                      {formatTokenAmount(bridgeStatus.lockedAmount, bridgeStatus.lockedToken)}{" "}
-                      {tokenSymbol(bridgeStatus.lockedToken)}
+                      {formatTokenAmount(bridgeStatus.lockedAmount, bridgeStatus.lockedToken, bridgeStatus.sourceChainId)}{" "}
+                      {tokenSymbol(bridgeStatus.lockedToken, bridgeStatus.sourceChainId)}
                     </span>{" "}
                     on source
                   </div>
@@ -457,9 +457,10 @@ function DetailPanel({ intent, onClose }: { intent: IntentData; onClose: () => v
                     <span className="font-medium text-[var(--ink)]">
                       {formatTokenAmount(
                         bridgeStatus.mintedAmount,
-                        bridgeStatus.mintedToken || bridgeStatus.lockedToken
+                        bridgeStatus.mintedToken || bridgeStatus.lockedToken,
+                        bridgeStatus.destChainId
                       )}{" "}
-                      {tokenSymbol(bridgeStatus.mintedToken || bridgeStatus.lockedToken)}
+                      {tokenSymbol(bridgeStatus.mintedToken || bridgeStatus.lockedToken, bridgeStatus.destChainId)}
                     </span>{" "}
                     on destination
                   </div>

@@ -10,32 +10,46 @@ const APOTHEM_TOKENS = {
   mockXDC: "0xfe4E746cA450C46Fe6Ede5EAc184A7F2082B2312",
 };
 
-const SYSTEM_PROMPT = `You are an intent-parsing assistant for a cross-chain intent protocol on XDC Apothem testnet.
+const SYSTEM_PROMPT = `You are an intent-parsing assistant for a cross-chain intent protocol.
+
+Supported chains (use chainId numbers):
+- XDC Apothem: 51
+- Sepolia: 11155111
+- Arbitrum Sepolia: 421614
 
 Available tokens (all 18 decimals):
-- MockUSDC (MUSDC): ${APOTHEM_TOKENS.mockUSDC}
-- MockXDC (MXDC): ${APOTHEM_TOKENS.mockXDC}
+- MockUSDC (MUSDC) on Apothem: ${APOTHEM_TOKENS.mockUSDC}
+- MockXDC (MXDC) on Apothem: ${APOTHEM_TOKENS.mockXDC}
+- For Sepolia/Arbitrum Sepolia, USDC and XDC placeholders are accepted; use the token symbol the user mentions.
 
-The user will describe a swap in plain English. Return ONLY a JSON object with this exact shape:
+The user will describe a swap or bridge in plain English, including source and destination chain names when relevant. Return ONLY a JSON object with this exact shape:
 {
-  "inputToken": "0x...",
+  "inputToken": "0x... or symbol",
   "inputAmount": "10",
-  "outputToken": "0x...",
+  "outputToken": "0x... or symbol",
   "minDestAmount": "190",
   "maxSolverFee": "1",
+  "sourceChainId": 51,
+  "destChainId": 51,
   "reasoning": "short explanation"
 }
 
-Amounts are raw human-readable token amounts (we will multiply by 10^18). Be conservative: minDestAmount should be ~95% of the expected output given the fixed rate 1 MUSDC = 20 MXDC. maxSolverFee should be small, e.g. 1 MXDC. If the request is unclear, return { "error": "..." }.`;
+Infer sourceChainId and destChainId from phrases like "on Sepolia", "to Arbitrum Sepolia", "from Sepolia to Arbitrum Sepolia", "on Apothem". Default both to 51 (Apothem) if no chain is mentioned.
+
+Amounts are raw human-readable token amounts (we will multiply by 10^18). Be conservative: minDestAmount should be ~95% of the expected output given the fixed rate 1 MUSDC = 20 MXDC on Apothem. maxSolverFee should be small, e.g. 1 MXDC or 0.5 USDC. If the request is unclear, return { "error": "..." }.`;
 
 interface Quote { solverAddress: string; outputAmount: string; feeBps: number; }
 
 function normalizeResult(result: Record<string, unknown>) {
-  const inputToken = String(result.inputToken || APOTHEM_TOKENS.mockUSDC).toLowerCase();
-  const outputToken = String(result.outputToken || APOTHEM_TOKENS.mockXDC).toLowerCase();
+  const inputTokenRaw = String(result.inputToken || APOTHEM_TOKENS.mockUSDC).toLowerCase();
+  const outputTokenRaw = String(result.outputToken || APOTHEM_TOKENS.mockXDC).toLowerCase();
+  const inputToken = inputTokenRaw.startsWith("0x") ? inputTokenRaw : APOTHEM_TOKENS.mockUSDC;
+  const outputToken = outputTokenRaw.startsWith("0x") ? outputTokenRaw : APOTHEM_TOKENS.mockXDC;
   const inputAmount = Math.max(0, parseFloat(String(result.inputAmount || "0")));
   let minDestAmount = parseFloat(String(result.minDestAmount || "0"));
   let maxSolverFee = parseFloat(String(result.maxSolverFee || "1"));
+  const sourceChainId = Number(result.sourceChainId || 51);
+  const destChainId = Number(result.destChainId || 51);
 
   const rate = inputToken === APOTHEM_TOKENS.mockUSDC.toLowerCase() && outputToken === APOTHEM_TOKENS.mockXDC.toLowerCase() ? 20 : 1;
   const expectedOutput = inputAmount * rate;
@@ -54,6 +68,8 @@ function normalizeResult(result: Record<string, unknown>) {
     outputToken,
     minDestAmount: minDestAmount.toString(),
     maxSolverFee: maxSolverFee.toString(),
+    sourceChainId,
+    destChainId,
     reasoning: String(result.reasoning || "Normalized swap intent"),
   };
 }
@@ -66,12 +82,33 @@ function parseLocally(prompt: string) {
   const inputAmount = parseFloat(match[1]);
   const expectedOutput = inputAmount * 20;
   const minDestAmount = expectedOutput * 0.95;
+
+  let sourceChainId = 51;
+  let destChainId = 51;
+  if (lower.includes("sepolia") && lower.includes("arbitrum")) {
+    if (lower.indexOf("from sepolia") !== -1) {
+      sourceChainId = 11155111;
+      destChainId = 421614;
+    } else {
+      sourceChainId = 421614;
+      destChainId = 11155111;
+    }
+  } else if (lower.includes("sepolia")) {
+    sourceChainId = 11155111;
+    destChainId = 421614;
+  } else if (lower.includes("arbitrum")) {
+    sourceChainId = 421614;
+    destChainId = 11155111;
+  }
+
   return normalizeResult({
     inputToken: APOTHEM_TOKENS.mockUSDC,
     inputAmount: inputAmount.toString(),
     outputToken: APOTHEM_TOKENS.mockXDC,
     minDestAmount: minDestAmount.toString(),
     maxSolverFee: "1",
+    sourceChainId,
+    destChainId,
     reasoning: `Local fallback: swap ${inputAmount} MUSDC for ~${expectedOutput} MXDC at 1:20 rate, requiring at least ${minDestAmount} MXDC.`,
   });
 }

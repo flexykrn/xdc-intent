@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import { ethers } from "ethers";
 import { XDCIntentSDK } from "@xdc-intent/sdk";
-import { RPC_URL, CONTRACTS } from "@/lib/contracts";
+import { CHAIN_METADATA, SUPPORTED_CHAIN_IDS, DEFAULT_CHAIN_ID, getContractAddresses } from "@/lib/contracts";
 
 interface WalletContextType {
   address: string | null;
@@ -13,7 +13,7 @@ interface WalletContextType {
   chainId: number | null;
   connect: () => Promise<void>;
   disconnect: () => void;
-  switchChain: () => Promise<void>;
+  switchChain: (targetChainId: number) => Promise<void>;
   provider: ethers.BrowserProvider | null;
   signer: ethers.JsonRpcSigner | null;
   sdk: XDCIntentSDK | null;
@@ -28,8 +28,6 @@ interface EthereumProvider {
 interface WindowWithEthereum {
   ethereum?: EthereumProvider;
 }
-
-const APOTHEM_CHAIN_ID = 51;
 
 const WalletContext = createContext<WalletContextType>({
   address: null,
@@ -50,24 +48,21 @@ function getEthereum(): EthereumProvider | undefined {
   return (window as unknown as WindowWithEthereum).ethereum;
 }
 
-async function addApothemNetwork(eth: EthereumProvider) {
+async function addNetwork(eth: EthereumProvider, chainId: number) {
+  const meta = CHAIN_METADATA[chainId];
+  if (!meta) throw new Error(`No chain metadata for ${chainId}`);
   await eth.request({
     method: "wallet_addEthereumChain",
-    params: [{
-      chainId: "0x33",
-      chainName: "XDC Apothem Testnet",
-      nativeCurrency: { name: "XDC", symbol: "XDC", decimals: 18 },
-      rpcUrls: [RPC_URL],
-      blockExplorerUrls: ["https://testnet.xdcscan.com"],
-    }],
+    params: [meta],
   });
 }
 
-async function switchToApothem(eth: EthereumProvider) {
+async function promptSwitchNetwork(eth: EthereumProvider, chainId: number) {
+  const chainIdHex = `0x${chainId.toString(16)}`;
   try {
-    await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x33" }] });
+    await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainIdHex }] });
   } catch {
-    await addApothemNetwork(eth);
+    await addNetwork(eth, chainId);
   }
 }
 
@@ -80,7 +75,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [signer, setSigner] = useState<ethers.JsonRpcSigner | null>(null);
   const [sdk, setSdk] = useState<XDCIntentSDK | null>(null);
 
-  const isCorrectChain = chainId === APOTHEM_CHAIN_ID;
+  const isCorrectChain = chainId !== null && SUPPORTED_CHAIN_IDS.includes(chainId);
 
   const reset = useCallback(() => {
     setAddress(null);
@@ -95,15 +90,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     reset();
   }, [reset]);
 
-  const buildSdk = useCallback((browserProvider: ethers.BrowserProvider, newSigner: ethers.JsonRpcSigner) => {
+  const buildSdk = useCallback((browserProvider: ethers.BrowserProvider, newSigner: ethers.JsonRpcSigner, targetChainId: number) => {
+    const addresses = getContractAddresses(targetChainId);
     const newSdk = new XDCIntentSDK({
       provider: browserProvider,
       signer: newSigner,
-      chainId: APOTHEM_CHAIN_ID,
+      chainId: targetChainId,
       contractAddresses: {
-        intentRegistry: CONTRACTS.intentRegistry,
-        escrow: CONTRACTS.escrow,
-        paymentVerifier: CONTRACTS.paymentVerifier,
+        intentRegistry: addresses.intentRegistry,
+        escrow: addresses.escrow,
+        paymentVerifier: addresses.paymentVerifier,
       },
     });
     setSdk(newSdk);
@@ -114,7 +110,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const currentChainId = Number(network.chainId);
     setChainId(currentChainId);
 
-    if (currentChainId !== APOTHEM_CHAIN_ID) {
+    if (!SUPPORTED_CHAIN_IDS.includes(currentChainId)) {
       setProvider(browserProvider);
       setSigner(null);
       setSdk(null);
@@ -124,19 +120,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     const newSigner = await browserProvider.getSigner();
     const newAddress = await newSigner.getAddress();
-    buildSdk(browserProvider, newSigner);
+    buildSdk(browserProvider, newSigner, currentChainId);
     setProvider(browserProvider);
     setSigner(newSigner);
     setAddress(newAddress);
     setIsConnected(true);
   }, [buildSdk]);
 
-  const switchChain = useCallback(async () => {
+  const switchChain = useCallback(async (targetChainId: number) => {
     const eth = getEthereum();
     if (!eth) return;
+    if (!SUPPORTED_CHAIN_IDS.includes(targetChainId)) {
+      alert(`Chain ${targetChainId} is not supported`);
+      return;
+    }
     setIsConnecting(true);
     try {
-      await switchToApothem(eth);
+      await promptSwitchNetwork(eth, targetChainId);
       const browserProvider = new ethers.BrowserProvider(eth as ethers.Eip1193Provider);
       await initializeFromProvider(browserProvider);
     } catch (error) {
@@ -166,14 +166,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
       let browserProvider = new ethers.BrowserProvider(eth as ethers.Eip1193Provider);
       const network = await browserProvider.getNetwork();
+      const currentChainId = Number(network.chainId);
 
-      if (Number(network.chainId) !== APOTHEM_CHAIN_ID) {
-        await switchToApothem(eth);
+      if (!SUPPORTED_CHAIN_IDS.includes(currentChainId)) {
+        await promptSwitchNetwork(eth, DEFAULT_CHAIN_ID);
         await new Promise((resolve) => setTimeout(resolve, 1000));
         browserProvider = new ethers.BrowserProvider(eth as ethers.Eip1193Provider);
         const newNetwork = await browserProvider.getNetwork();
-        if (Number(newNetwork.chainId) !== APOTHEM_CHAIN_ID) {
-          throw new Error("Please switch to XDC Apothem Testnet (chain ID 51)");
+        if (!SUPPORTED_CHAIN_IDS.includes(Number(newNetwork.chainId))) {
+          throw new Error("Please switch to a supported testnet");
         }
       }
 
@@ -204,9 +205,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const handleChainChanged = (...args: unknown[]) => {
       const newChainId = typeof args[0] === "string" ? parseInt(args[0], 16) : null;
       setChainId(newChainId);
-      if (newChainId === APOTHEM_CHAIN_ID && provider) {
+      if (newChainId !== null && SUPPORTED_CHAIN_IDS.includes(newChainId) && provider) {
         initializeFromProvider(provider).catch(console.error);
-      } else if (newChainId !== APOTHEM_CHAIN_ID) {
+      } else if (newChainId !== null && !SUPPORTED_CHAIN_IDS.includes(newChainId)) {
         setSigner(null);
         setSdk(null);
       }

@@ -4,10 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, Copy, LogOut, AlertTriangle } from "lucide-react";
+import { Menu, X, Copy, LogOut, AlertTriangle, ChevronDown } from "lucide-react";
 import { useWallet } from "@/components/providers";
 import XDCLogo from "@/components/icons/XDCLogo";
 import { truncateAddress } from "@/lib/utils";
+import { chainName, SOURCE_CHAINS, DEST_CHAINS } from "@/lib/tokens";
 import toast from "react-hot-toast";
 
 const appLinks = [
@@ -16,7 +17,7 @@ const appLinks = [
   { label: "Market", href: "/market" },
   { label: "My Intents", href: "/my-intents" },
   { label: "Bridge", href: "/bridge" },
-  { label: "Agent", href: "/agent-demo" },
+  { label: "Agent", href: "/agent" },
 ];
 
 const externalLinks = [
@@ -24,10 +25,11 @@ const externalLinks = [
 ];
 
 export default function Navbar() {
-  const { isConnected, address, connect, disconnect, switchChain, isCorrectChain, isConnecting } = useWallet();
+  const { isConnected, address, connect, disconnect, switchChain, isCorrectChain, isConnecting, chainId } = useWallet();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [chainOpen, setChainOpen] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
@@ -49,6 +51,13 @@ export default function Navbar() {
     } catch {
       toast.error("Copy failed");
     }
+  };
+
+  const supportedChains = Array.from(new Set([...SOURCE_CHAINS, ...DEST_CHAINS]));
+
+  const handleSwitchChain = (targetChainId: number) => {
+    setChainOpen(false);
+    switchChain(targetChainId);
   };
 
   return (
@@ -98,18 +107,49 @@ export default function Navbar() {
         <div className="flex items-center gap-2">
           {isConnected ? (
             <div className="hidden sm:flex items-center gap-2">
-              {!isCorrectChain ? (
+              <div className="relative">
                 <motion.button
-                  onClick={switchChain}
+                  onClick={() => setChainOpen(!chainOpen)}
                   disabled={isConnecting}
-                  className="flex items-center gap-2 px-3.5 py-2 rounded-full text-[12px] font-semibold bg-[var(--error)]/10 text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/20 transition-colors disabled:opacity-50"
+                  className={`flex items-center gap-2 px-3 py-2 rounded-full text-[12px] font-semibold border transition-colors disabled:opacity-50 ${
+                    isCorrectChain
+                      ? "surface-subtle text-[var(--ink)] hover:border-[var(--ink-2)]"
+                      : "bg-[var(--error)]/10 text-[var(--error)] border-[var(--error)]/20 hover:bg-[var(--error)]/20"
+                  }`}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  {isConnecting ? "Switching..." : "Switch to Apothem"}
+                  {!isCorrectChain && <AlertTriangle className="w-3.5 h-3.5" />}
+                  <span>{isCorrectChain ? chainName(chainId || 0) : "Unsupported"}</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${chainOpen ? "rotate-180" : ""}`} />
                 </motion.button>
-              ) : (
+                <AnimatePresence>
+                  {chainOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      className="absolute right-0 top-full mt-2 w-44 rounded-xl bg-[var(--bg)] border border-[var(--border)] shadow-lg overflow-hidden z-50"
+                    >
+                      {supportedChains.map((cid) => (
+                        <button
+                          key={cid}
+                          onClick={() => handleSwitchChain(cid)}
+                          className={`w-full text-left px-4 py-2.5 text-[13px] font-medium transition-colors ${
+                            chainId === cid
+                              ? "bg-[var(--accent)]/10 text-[var(--accent)]"
+                              : "text-[var(--ink)] hover:bg-[var(--bg-3)]"
+                          }`}
+                        >
+                          {chainName(cid)}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {isCorrectChain && (
                 <>
                   <motion.button
                     onClick={handleCopy}
@@ -192,7 +232,7 @@ export default function Navbar() {
                 <div className="pt-2 space-y-2">
                   {!isCorrectChain ? (
                     <button
-                      onClick={switchChain}
+                      onClick={() => switchChain(51)}
                       disabled={isConnecting}
                       className="w-full px-4 py-3 rounded-full text-sm font-semibold bg-[var(--error)]/10 text-[var(--error)] border border-[var(--error)]/20 disabled:opacity-50"
                     >
@@ -200,6 +240,17 @@ export default function Navbar() {
                     </button>
                   ) : (
                     <>
+                      <div className="px-4 py-2 text-xs text-[var(--ink-3)]">Chain: {chainName(chainId || 0)}</div>
+                      {supportedChains.map((cid) => (
+                        <button
+                          key={cid}
+                          onClick={() => switchChain(cid)}
+                          disabled={isConnecting || chainId === cid}
+                          className="w-full px-4 py-3 rounded-full text-sm font-semibold surface-subtle text-[var(--ink)] disabled:opacity-50"
+                        >
+                          {chainId === cid ? `✓ ${chainName(cid)}` : `Switch to ${chainName(cid)}`}
+                        </button>
+                      ))}
                       <button
                         onClick={handleCopy}
                         className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-full text-sm font-semibold surface-subtle text-[var(--ink)]"

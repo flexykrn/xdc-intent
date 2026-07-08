@@ -15,11 +15,12 @@ export interface ChainInfo {
 
 export const CHAINS: ChainInfo[] = [
   { chainId: 51, name: "XDC Apothem", shortName: "Apothem", nativeSymbol: "XDC" },
-  { chainId: 99999, name: "Mock L2 Alpha", shortName: "MockL2", nativeSymbol: "mXDC" },
-  { chainId: 88888, name: "Mock L2 Beta", shortName: "MockL2-Beta", nativeSymbol: "mXDC" },
   { chainId: 11155111, name: "Sepolia", shortName: "Sepolia", nativeSymbol: "ETH" },
   { chainId: 421614, name: "Arbitrum Sepolia", shortName: "Arb Sepolia", nativeSymbol: "ETH" },
 ];
+
+export const SOURCE_CHAINS = [51, 11155111];
+export const DEST_CHAINS = [51, 11155111, 421614];
 
 export const TOKENS: TokenInfo[] = [
   {
@@ -43,19 +44,61 @@ export const TOKENS: TokenInfo[] = [
     decimals: 18,
     chainId: 51,
   },
+  {
+    symbol: "MUSDC",
+    name: "Mock USDC",
+    address: "0xc4444878b39A45D7B7D397b089B479f44D2f1796",
+    decimals: 18,
+    chainId: 11155111,
+  },
+  {
+    symbol: "MXDC",
+    name: "Mock XDC",
+    address: "0x1FD2e5d44b91D76A5f622c54C45Bde42965B8c7A",
+    decimals: 18,
+    chainId: 11155111,
+  },
+  {
+    symbol: "ETH",
+    name: "Sepolia ETH",
+    address: "0x0000000000000000000000000000000000000000",
+    decimals: 18,
+    chainId: 11155111,
+  },
+  {
+    symbol: "MUSDC",
+    name: "Mock USDC",
+    address: "0xcC4A7fF0512Ee5bEEF25C2b61784FbDfA9ff5A45",
+    decimals: 18,
+    chainId: 421614,
+  },
+  {
+    symbol: "ETH",
+    name: "Arbitrum Sepolia ETH",
+    address: "0x0000000000000000000000000000000000000000",
+    decimals: 18,
+    chainId: 421614,
+  },
 ];
 
 export const chainName = (chainId: number) => CHAINS.find((c) => c.chainId === chainId)?.shortName || `Chain ${chainId}`;
 
-export const tokenByAddress = (address: string) =>
-  TOKENS.find((t) => t.address.toLowerCase() === address.toLowerCase());
+export const tokensForChain = (chainId: number) => TOKENS.filter((t) => t.chainId === chainId);
 
-export const tokenSymbol = (address: string) => tokenByAddress(address)?.symbol || address.slice(0, 6);
+export const tokenByAddress = (address: string, chainId?: number) =>
+  TOKENS.find((t) =>
+    t.address.toLowerCase() === address.toLowerCase() &&
+    (chainId === undefined || t.chainId === chainId)
+  );
 
-export const tokenDecimals = (address: string) => tokenByAddress(address)?.decimals || 18;
+export const tokenSymbol = (address: string, chainId?: number) =>
+  tokenByAddress(address, chainId)?.symbol || address.slice(0, 6);
 
-export function formatTokenAmount(amount: string | bigint, address: string): string {
-  const decimals = tokenDecimals(address);
+export const tokenDecimals = (address: string, chainId?: number) =>
+  tokenByAddress(address, chainId)?.decimals || 18;
+
+export function formatTokenAmount(amount: string | bigint, address: string, chainId?: number): string {
+  const decimals = tokenDecimals(address, chainId);
   try {
     const value = typeof amount === "string" ? BigInt(amount) : amount;
     return new Intl.NumberFormat("en-US", {
@@ -67,8 +110,8 @@ export function formatTokenAmount(amount: string | bigint, address: string): str
   }
 }
 
-export function parseTokenAmount(amount: string, address: string): bigint {
-  const decimals = tokenDecimals(address);
+export function parseTokenAmount(amount: string, address: string, chainId?: number): bigint {
+  const decimals = tokenDecimals(address, chainId);
   try {
     const [whole, frac = ""] = amount.split(".");
     const padded = (frac + "0".repeat(decimals)).slice(0, decimals);

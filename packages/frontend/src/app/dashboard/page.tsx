@@ -152,13 +152,13 @@ export default function DashboardPage() {
                     <StatusDot status={intent.status} />
                     <div>
                       <div className="text-sm font-medium text-[var(--ink)]">
-                        <TokenSymbol symbol={tokenSymbol(intent.sourceToken)} />
+                        <TokenSymbol symbol={tokenSymbol(intent.sourceToken, intent.sourceChainId)} />
                         <span className="mx-2 text-[var(--ink-3)]">→</span>
-                        <TokenSymbol symbol={tokenSymbol(intent.destToken)} />
+                        <TokenSymbol symbol={tokenSymbol(intent.destToken, intent.destChainId)} />
                       </div>
                       <div className="text-[11px] text-[var(--ink-3)] mt-1">
-                        {formatTokenAmount(intent.sourceAmount, intent.sourceToken)} → min{" "}
-                        {formatTokenAmount(intent.minDestAmount, intent.destToken)} · {chainName(intent.sourceChainId)} →{" "}
+                        {formatTokenAmount(intent.sourceAmount, intent.sourceToken, intent.sourceChainId)} → min{" "}
+                        {formatTokenAmount(intent.minDestAmount, intent.destToken, intent.destChainId)} · {chainName(intent.sourceChainId)} →{" "}
                         {chainName(intent.destChainId)}
                       </div>
                     </div>
@@ -183,7 +183,7 @@ export default function DashboardPage() {
               <QuickAction href="/market" icon={<Activity size={16} />} label="Browse Market" />
               <QuickAction href="/my-intents" icon={<Wallet size={16} />} label="My Intents" />
               <QuickAction href="/solvers" icon={<Trophy size={16} />} label="Solver Leaderboard" />
-              <QuickAction href="/agent-demo" icon={<LayoutGrid size={16} />} label="AI Agent Demo" />
+              <QuickAction href="/agent" icon={<LayoutGrid size={16} />} label="AI Agent" />
             </div>
           </div>
 

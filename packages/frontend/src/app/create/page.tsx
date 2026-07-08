@@ -3,9 +3,9 @@
 import { useWallet } from "@/components/providers";
 import PageContainer from "@/components/PageContainer";
 import { SectionHeader, TokenSymbol } from "@/components/ui";
-import { CHAINS, TOKENS, chainName, tokenSymbol, formatTokenAmount, parseTokenAmount } from "@/lib/tokens";
-import { ERC20_ABI, CONTRACTS } from "@/lib/contracts";
-import { useState, useEffect, useMemo } from "react";
+import { CHAINS, TOKENS, SOURCE_CHAINS, DEST_CHAINS, tokensForChain, chainName, tokenSymbol, formatTokenAmount, parseTokenAmount } from "@/lib/tokens";
+import { ERC20_ABI, getContractAddresses, SUPPORTED_CHAIN_IDS, DEFAULT_CHAIN_ID } from "@/lib/contracts";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ethers } from "ethers";
 import { useRouter } from "next/navigation";
@@ -33,14 +33,14 @@ const expiryOptions = [
 const steps = ["Chain & Token", "Amounts", "Review"];
 
 export default function CreatePage() {
-  const { isConnected, isCorrectChain, sdk, address, provider, signer } = useWallet();
+  const { isConnected, isCorrectChain, sdk, address, provider, signer, chainId, switchChain } = useWallet();
   const router = useRouter();
   const [step, setStep] = useState(0);
 
   const [sourceChainId, setSourceChainId] = useState(51);
-  const [destChainId, setDestChainId] = useState(51);
+  const [destChainId, setDestChainId] = useState(11155111);
   const [fromToken, setFromToken] = useState(TOKENS[0]);
-  const [toToken, setToToken] = useState(TOKENS[1]);
+  const [toToken, setToToken] = useState(TOKENS[3]);
   const [fromAmount, setFromAmount] = useState("");
   const [minOutput, setMinOutput] = useState("");
   const [maxSolverFee, setMaxSolverFee] = useState("0.5");
@@ -50,6 +50,32 @@ export default function CreatePage() {
   const [approvalState, setApprovalState] = useState<"idle" | "checking" | "needed" | "approving" | "approved">("idle");
 
   const isCrossChain = sourceChainId !== destChainId;
+  const sourceTokens = useMemo(() => tokensForChain(sourceChainId), [sourceChainId]);
+  const destTokens = useMemo(() => tokensForChain(destChainId), [destChainId]);
+  const sourceContracts = useMemo(() => getContractAddresses(sourceChainId), [sourceChainId]);
+
+  useEffect(() => {
+    if (sourceTokens.length > 0 && !sourceTokens.some((t) => t.address === fromToken.address)) {
+      setFromToken(sourceTokens[0]);
+    }
+  }, [sourceChainId, sourceTokens, fromToken.address]);
+
+  useEffect(() => {
+    if (destTokens.length > 0 && !destTokens.some((t) => t.address === toToken.address)) {
+      setToToken(destTokens[0]);
+    }
+  }, [destChainId, destTokens, toToken.address]);
+
+  const previousSourceChainId = useRef(sourceChainId);
+
+  useEffect(() => {
+    if (!isConnected) return;
+    if (previousSourceChainId.current === sourceChainId) return;
+    previousSourceChainId.current = sourceChainId;
+    if (chainId !== sourceChainId && SUPPORTED_CHAIN_IDS.includes(sourceChainId)) {
+      switchChain(sourceChainId);
+    }
+  }, [sourceChainId, chainId, isConnected, switchChain]);
 
   useEffect(() => {
     if (!isConnected || !isCorrectChain) {
@@ -62,7 +88,7 @@ export default function CreatePage() {
         return;
       }
       try {
-        const res = await fetch(`/api/quotes/estimate?fromToken=${fromToken.address}&toToken=${toToken.address}&amount=${fromAmount}`);
+        const res = await fetch(`/api/quotes/estimate?fromToken=${fromToken.address}&toToken=${toToken.address}&amount=${fromAmount}&sourceChain=${sourceChainId}&destChain=${destChainId}`);
         if (!res.ok) return;
         const body = await res.json();
         setEstimatedOutput(body.outputAmount);
@@ -71,7 +97,7 @@ export default function CreatePage() {
       }
     }
     estimate();
-  }, [fromAmount, fromToken, toToken, isConnected, isCorrectChain]);
+  }, [fromAmount, fromToken, toToken, isConnected, isCorrectChain, sourceChainId, destChainId]);
 
   useEffect(() => {
     if (!isConnected || !isCorrectChain || !provider || !address) {
@@ -91,21 +117,21 @@ export default function CreatePage() {
       setApprovalState("checking");
       try {
         const token = new ethers.Contract(fromToken.address, ERC20_ABI, provider);
-        const escrowAddress = await sdk?.escrow.getAddress().catch(() => CONTRACTS.escrow) ?? CONTRACTS.escrow;
+        const escrowAddress = sourceContracts.escrow;
         const allowance = await token.allowance(address, escrowAddress);
-        const required = parseTokenAmount(fromAmount || "0", fromToken.address);
+        const required = parseTokenAmount(fromAmount || "0", fromToken.address, sourceChainId);
         setApprovalState(allowance >= required ? "approved" : "needed");
       } catch {
         setApprovalState("needed");
       }
     }
     checkAllowance();
-  }, [isConnected, isCorrectChain, provider, address, fromToken, fromAmount, step, sdk]);
+  }, [isConnected, isCorrectChain, provider, address, fromToken, fromAmount, step, sourceContracts, sourceChainId]);
 
   const preview = useMemo(() => {
     if (!fromAmount || parseFloat(fromAmount) <= 0) return null;
-    const source = `${fromAmount} ${tokenSymbol(fromToken.address)}`;
-    const estimated = estimatedOutput ? formatTokenAmount(estimatedOutput, toToken.address) : null;
+    const source = `${fromAmount} ${tokenSymbol(fromToken.address, sourceChainId)}`;
+      const estimated = estimatedOutput ? formatTokenAmount(estimatedOutput, toToken.address, destChainId) : null;
     const fee = parseFloat(maxSolverFee || "0");
     const min = parseFloat(minOutput || "0");
     const estimatedNum = estimated ? parseFloat(estimated) : 0;
@@ -114,17 +140,17 @@ export default function CreatePage() {
     return {
       source,
       sourceAmount: fromAmount,
-      sourceSymbol: tokenSymbol(fromToken.address),
+      sourceSymbol: tokenSymbol(fromToken.address, sourceChainId),
       estimated,
       estimatedNum,
       fee,
-      feeSymbol: tokenSymbol(toToken.address),
+      feeSymbol: tokenSymbol(toToken.address, destChainId),
       min,
-      minSymbol: tokenSymbol(toToken.address),
+      minSymbol: tokenSymbol(toToken.address, destChainId),
       net,
       slippage,
     };
-  }, [fromAmount, fromToken, toToken, estimatedOutput, maxSolverFee, minOutput]);
+  }, [fromAmount, fromToken, toToken, estimatedOutput, maxSolverFee, minOutput, sourceChainId, destChainId]);
 
   const canNext = useMemo(() => {
     if (step === 0) return sourceChainId && destChainId && fromToken && toToken;
@@ -133,12 +159,17 @@ export default function CreatePage() {
   }, [step, sourceChainId, destChainId, fromToken, toToken, fromAmount, minOutput, maxSolverFee]);
 
   const handleCreate = async () => {
-    if (!isConnected || !sdk || !address) {
+    if (!isConnected || !sdk || !address || !signer) {
       toast.error("Please connect your wallet first");
       return;
     }
     if (!isCorrectChain) {
-      toast.error("Please switch to XDC Apothem Testnet");
+      toast.error("Please switch to a supported testnet");
+      return;
+    }
+    if (chainId !== sourceChainId) {
+      toast.error(`Please switch your wallet to ${chainName(sourceChainId)}`);
+      await switchChain(sourceChainId);
       return;
     }
 
@@ -149,10 +180,10 @@ export default function CreatePage() {
       const expiryTimestamp = Math.floor(Date.now() / 1000) + expirySeconds;
       const nonce = (await sdk.getUserNonce(address)) + 1n;
 
-      const sourceAmount = parseTokenAmount(fromAmount, fromToken.address);
-      const minDestAmount = parseTokenAmount(minOutput, toToken.address);
-      const maxSolverFeeRaw = parseTokenAmount(maxSolverFee, toToken.address);
-      const escrowAddress = await sdk.escrow.getAddress();
+      const sourceAmount = parseTokenAmount(fromAmount, fromToken.address, sourceChainId);
+      const minDestAmount = parseTokenAmount(minOutput, toToken.address, destChainId);
+      const maxSolverFeeRaw = parseTokenAmount(maxSolverFee, toToken.address, destChainId);
+      const escrowAddress = sourceContracts.escrow;
 
       if (fromToken.address !== ethers.ZeroAddress && approvalState !== "approved") {
         toast.loading("Approving token...", { id: toastId });
@@ -160,7 +191,7 @@ export default function CreatePage() {
         const token = new ethers.Contract(
           fromToken.address,
           ["function approve(address spender,uint256 amount) returns (bool)"],
-          signer || (sdk.escrow.runner as ethers.Signer)
+          signer
         );
         const approveTx = await token.approve(escrowAddress, sourceAmount);
         await approveTx.wait();
@@ -217,7 +248,14 @@ export default function CreatePage() {
         <div className="rounded-3xl p-12 text-center surface">
           <AlertCircle className="w-12 h-12 text-[var(--error)] mx-auto mb-5" />
           <p className="text-lg font-medium text-[var(--ink)] mb-2">Wrong network</p>
-          <p className="text-[var(--ink-3)] mb-6">Please switch to XDC Apothem Testnet to create intents.</p>
+          <p className="text-[var(--ink-3)] mb-6">Please switch to a supported testnet to create intents.</p>
+          <button
+            onClick={() => switchChain(DEFAULT_CHAIN_ID)}
+            disabled={isSubmitting}
+            className="px-5 py-2.5 rounded-full text-sm font-semibold btn-primary"
+          >
+            Switch to Apothem
+          </button>
         </div>
       </PageContainer>
     );
@@ -245,22 +283,31 @@ export default function CreatePage() {
                 className="space-y-6"
               >
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <ChainSelector label="Source chain" value={sourceChainId} onChange={setSourceChainId} />
-                  <ChainSelector label="Destination chain" value={destChainId} onChange={setDestChainId} />
+                  <ChainSelector label="Source chain" value={sourceChainId} allowedChainIds={SOURCE_CHAINS} onChange={setSourceChainId} />
+                  <ChainSelector label="Destination chain" value={destChainId} allowedChainIds={DEST_CHAINS} onChange={setDestChainId} />
                 </div>
 
-                {isCrossChain && (
+                <RoutePreview sourceChainId={sourceChainId} destChainId={destChainId} />
+
+                {isCrossChain ? (
                   <div className="p-4 rounded-xl bg-[var(--accent)]/5 border border-[var(--accent)]/20 flex items-start gap-3">
                     <ArrowRightLeft className="w-5 h-5 text-[var(--accent)] shrink-0 mt-0.5" />
                     <div className="text-sm text-[var(--ink-2)]">
-                      Cross-chain intents route through the MockBridge on Apothem. Solvers will rebalance via the bridge after fulfillment.
+                      Cross-chain intents route through the LayerZero bridge on {chainName(sourceChainId)}. Solvers will rebalance via the bridge after fulfillment.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-xl bg-[var(--bg-3)] border border-[var(--border)] flex items-start gap-3">
+                    <ArrowRightLeft className="w-5 h-5 text-[var(--ink-3)] shrink-0 mt-0.5" />
+                    <div className="text-sm text-[var(--ink-2)]">
+                      Same-chain swap on {chainName(sourceChainId)}. No bridge required.
                     </div>
                   </div>
                 )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <TokenSelector label="You send" value={fromToken} onChange={setFromToken} />
-                  <TokenSelector label="You receive" value={toToken} onChange={setToToken} />
+                  <TokenSelector label="You send" tokens={sourceTokens} value={fromToken} onChange={setFromToken} />
+                  <TokenSelector label="You receive" tokens={destTokens} value={toToken} onChange={setToToken} />
                 </div>
               </motion.div>
             )}
@@ -283,7 +330,7 @@ export default function CreatePage() {
                       placeholder="0.00"
                       className="flex-1 bg-transparent text-2xl font-bold text-right outline-none text-[var(--ink)] placeholder:text-[var(--ink-4)] font-mono-nums"
                     />
-                    <TokenSymbol symbol={tokenSymbol(fromToken.address)} />
+                    <TokenSymbol symbol={tokenSymbol(fromToken.address, sourceChainId)} />
                   </div>
                 </div>
 
@@ -297,7 +344,7 @@ export default function CreatePage() {
                       placeholder="0.00"
                       className="flex-1 bg-transparent text-2xl font-bold text-right outline-none text-[var(--ink)] placeholder:text-[var(--ink-4)] font-mono-nums"
                     />
-                    <TokenSymbol symbol={tokenSymbol(toToken.address)} />
+                    <TokenSymbol symbol={tokenSymbol(toToken.address, destChainId)} />
                   </div>
                   <p className="text-xs text-[var(--ink-3)]">Solvers must deliver at least this amount or the intent reverts.</p>
                 </div>
@@ -312,7 +359,7 @@ export default function CreatePage() {
                         onChange={(e) => setMaxSolverFee(e.target.value)}
                         className="flex-1 bg-transparent text-lg font-semibold text-right outline-none text-[var(--ink)] font-mono-nums"
                       />
-                      <span className="text-sm text-[var(--ink-3)]">{tokenSymbol(toToken.address)}</span>
+                      <span className="text-sm text-[var(--ink-3)]">{tokenSymbol(toToken.address, destChainId)}</span>
                     </div>
                   </div>
 
@@ -346,7 +393,7 @@ export default function CreatePage() {
                     <div className="text-sm text-[var(--ink-2)]">
                       Estimated DEX output:{" "}
                       <span className="font-semibold text-[var(--ink)]">
-                        {formatTokenAmount(estimatedOutput, toToken.address)} {tokenSymbol(toToken.address)}
+                        {formatTokenAmount(estimatedOutput, toToken.address)} {tokenSymbol(toToken.address, destChainId)}
                       </span>
                     </div>
                   </div>
@@ -363,11 +410,11 @@ export default function CreatePage() {
                 className="space-y-6"
               >
                 <div className="rounded-2xl bg-[var(--bg-3)] border border-[var(--border)] overflow-hidden">
-                  <ReviewRow label="Source" value={<span className="flex items-center gap-2"><TokenSymbol symbol={tokenSymbol(fromToken.address)} /> on {chainName(sourceChainId)}</span>} />
-                  <ReviewRow label="Destination" value={<span className="flex items-center gap-2"><TokenSymbol symbol={tokenSymbol(toToken.address)} /> on {chainName(destChainId)}</span>} />
-                  <ReviewRow label="You send" value={`${fromAmount} ${tokenSymbol(fromToken.address)}`} />
-                  <ReviewRow label="Minimum receive" value={`${minOutput} ${tokenSymbol(toToken.address)}`} />
-                  <ReviewRow label="Max solver fee" value={`${maxSolverFee} ${tokenSymbol(toToken.address)}`} />
+                  <ReviewRow label="Source" value={<span className="flex items-center gap-2"><TokenSymbol symbol={tokenSymbol(fromToken.address, sourceChainId)} /> on {chainName(sourceChainId)}</span>} />
+                  <ReviewRow label="Destination" value={<span className="flex items-center gap-2"><TokenSymbol symbol={tokenSymbol(toToken.address, destChainId)} /> on {chainName(destChainId)}</span>} />
+                  <ReviewRow label="You send" value={`${fromAmount} ${tokenSymbol(fromToken.address, sourceChainId)}`} />
+                  <ReviewRow label="Minimum receive" value={`${minOutput} ${tokenSymbol(toToken.address, destChainId)}`} />
+                  <ReviewRow label="Max solver fee" value={`${maxSolverFee} ${tokenSymbol(toToken.address, destChainId)}`} />
                   <ReviewRow
                     label="Expiry"
                     value={expiryOptions.find((o) => o.value === expiry)?.label}
@@ -377,12 +424,12 @@ export default function CreatePage() {
 
                 {preview && <SwapPreview preview={preview} />}
 
-                <ApprovalStep state={approvalState} tokenSymbol={tokenSymbol(fromToken.address)} amount={fromAmount} />
+                <ApprovalStep state={approvalState} tokenSymbol={tokenSymbol(fromToken.address, sourceChainId)} amount={fromAmount} />
 
                 <div className="p-4 rounded-xl bg-[var(--warning)]/10 border border-[var(--warning)]/20 flex items-start gap-3">
                   <AlertCircle className="w-5 h-5 text-[var(--warning)] shrink-0 mt-0.5" />
                   <div className="text-sm text-[var(--ink-2)]">
-                    You will approve the Escrow contract to spend {fromAmount} {tokenSymbol(fromToken.address)}. This is a testnet transaction with no real value.
+                    You will approve the Escrow contract to spend {fromAmount} {tokenSymbol(fromToken.address, sourceChainId)}. This is a testnet transaction with no real value.
                   </div>
                 </div>
               </motion.div>
@@ -457,12 +504,13 @@ function Stepper({ steps, current }: { steps: string[]; current: number }) {
   );
 }
 
-function ChainSelector({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function ChainSelector({ label, value, allowedChainIds, onChange }: { label: string; value: number; allowedChainIds: number[]; onChange: (v: number) => void }) {
+  const chains = CHAINS.filter((c) => allowedChainIds.includes(c.chainId));
   return (
     <div className="space-y-2">
       <label className="text-sm font-medium text-[var(--ink-3)]">{label}</label>
       <div className="grid grid-cols-2 gap-2">
-        {CHAINS.map((chain) => (
+        {chains.map((chain) => (
           <button
             key={chain.chainId}
             onClick={() => onChange(chain.chainId)}
@@ -481,12 +529,12 @@ function ChainSelector({ label, value, onChange }: { label: string; value: numbe
   );
 }
 
-function TokenSelector({ label, value, onChange }: { label: string; value: (typeof TOKENS)[0]; onChange: (t: (typeof TOKENS)[0]) => void }) {
+function TokenSelector({ label, tokens, value, onChange }: { label: string; tokens: typeof TOKENS; value: (typeof TOKENS)[0]; onChange: (t: (typeof TOKENS)[0]) => void }) {
   return (
     <div className="space-y-2">
       <label className="text-sm font-medium text-[var(--ink-3)]">{label}</label>
       <div className="space-y-2">
-        {TOKENS.map((token) => (
+        {tokens.map((token) => (
           <button
             key={token.address}
             onClick={() => onChange(token)}
@@ -501,6 +549,16 @@ function TokenSelector({ label, value, onChange }: { label: string; value: (type
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function RoutePreview({ sourceChainId, destChainId }: { sourceChainId: number; destChainId: number }) {
+  return (
+    <div className="flex items-center justify-center gap-3 p-4 rounded-xl bg-[var(--bg-3)] border border-[var(--border)]">
+      <span className="text-sm font-semibold text-[var(--ink)]">{chainName(sourceChainId)}</span>
+      <ArrowRightLeft className="w-4 h-4 text-[var(--accent)]" />
+      <span className="text-sm font-semibold text-[var(--ink)]">{chainName(destChainId)}</span>
     </div>
   );
 }
