@@ -170,6 +170,27 @@ BridgeOut: 0x...
 PASS: Destination balance increased. LayerZero cross-chain intent completed.
 ```
 
+### Latest Successful Testnet Run
+
+| | |
+|---|---|
+| Date | 2026-07-08 |
+| Source chain | Sepolia (11155111) |
+| Destination chain | Arbitrum Sepolia (421614) |
+| Sepolia IntentLZBridge | `0xC15d7202C33734CB8DD1D777b9b529990f613bf9` |
+| Arbitrum Sepolia IntentLZBridge | `0x4AcD50D40Cd9DfA36CaBb2dbb8f5410e7C55cDfF` |
+| Sepolia MockUSDC | `0xc4444878b39A45D7B7D397b089B479f44D2f1796` |
+| Arbitrum Sepolia MockUSDC | `0xcC4A7fF0512Ee5bEEF25C2b61784FbDfA9ff5A45` |
+| IntentRegistry | `0x0d35f055Ebd8F194a7F581F426436811a5088A5d` |
+| SolverRegistry | `0xe18B66A9B569cfeF2ce7911d9730A668588eE7Ec` |
+| User / Deployer | `0x8916DD1311c17aD008bB56bE3378E001a92e4375` |
+| Solver | `0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe` |
+| Intent ID | `0x1064e251f2dd2027edd1892bdb42286f3d0950e1fcb17e6184f2be73ac13dcd2` |
+| Submit tx | `0xc456dd85d5dfccf68115476d510f881bf276ef7ad181f42428784ca69ad05938` |
+| Fulfill tx | `0xa796077ec00f22ac5ac7021afcc9e29176dfd4bd04230c64595f58c8df78853b` |
+| BridgeOut tx | `0xa514cb59825142e8bf6244a065c3a112dc05917866d165d3e1fdfa3b98a962e5` |
+| Result | ✅ Destination balance increased by 10.0 MUSDC |
+
 ### Troubleshooting
 
 #### "insufficient funds for intrinsic transaction cost"
@@ -263,6 +284,7 @@ npm run demo:e2e
 | Cross-chain Beta 88888 (2026-07-07) | `0xd777be92...bb5585e1` | `0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe` | `199.00` MXDC | `0x8eeb8e57...aa1053e9` | `0x8554ad5e...64a8eace1` |
 | Same-chain (2026-07-07) | `0x196478c8...d0435214` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `200.00` MXDC | `0x335882e6...0d259684` | â€” |
 | Cross-chain Alpha 99999 (2026-07-07) | `0xfa5ef1a3...562233e3e` | `0xd83A98ad44896E841C16Be58b663f70a827c93Ff` | `199.00` MXDC | `0x9e6b3093...2b069eaff` | `0x8dc04f95...ea1fdc51` |
+| LayerZero Sepolia → Arbitrum Sepolia (2026-07-08) | `0x1064e251...ac13dcd2` | `0x5cF5bA47FA35F6e43adeE8445A487C32F1545fDe` | `10.0` MUSDC | `0xa796077e...df78853b` | `0xa514cb59...8a962e5` |
 
 **Note:** `IntentRegistry.fulfillIntent` now accepts an explicit `solver` parameter. The middleware passes the actual winning solver address, so on-chain `solver` matches the off-chain quote winner and source tokens are released to the solver.
 

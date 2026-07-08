@@ -202,7 +202,7 @@ async function deploySepoliaStack(existing: Partial<DeploymentRecord>) {
   if (process.env.SOLVER_PRIVATE_KEY && !solverAddress) {
     const solverWallet = new ethers.Wallet(process.env.SOLVER_PRIVATE_KEY, ethers.provider);
     solverAddress = solverWallet.address;
-    const registry = await ethers.getContractAt("SolverRegistry", solverRegistryAddress, deployer);
+    const registry = await ethers.getContractAt("SolverRegistry", solverRegistryAddress, solverWallet);
     const isRegistered = await registry.isRegistered(solverAddress);
     if (!isRegistered) {
       console.log(`Registering solver ${solverAddress}...`);
@@ -236,12 +236,13 @@ async function deploySepoliaStack(existing: Partial<DeploymentRecord>) {
 }
 
 async function deployArbitrumSepoliaStack(sepoliaBridgeAddress: string) {
-  const [deployer] = await ethers.getSigners();
+  const arbProvider = new ethers.JsonRpcProvider(process.env.ARBITRUM_SEPOLIA_RPC_URL);
+  const deployer = new ethers.Wallet(process.env.DEPLOYER_PRIVATE_KEY!, arbProvider);
   console.log("\n========================================");
   console.log(`Deploying Arbitrum Sepolia stack with: ${deployer.address}`);
   console.log("========================================");
 
-  const MockERC20 = await ethers.getContractFactory("MockERC20");
+  const MockERC20 = await ethers.getContractFactory("MockERC20", deployer);
   console.log("Deploying MockUSDC on Arbitrum Sepolia...");
   const mockUSDC = await MockERC20.deploy("Mock USDC", "MUSDC", ethers.parseEther("1000000"));
   await mockUSDC.waitForDeployment();
@@ -249,7 +250,7 @@ async function deployArbitrumSepoliaStack(sepoliaBridgeAddress: string) {
   console.log(`MockUSDC: ${mockUSDCAddress}`);
 
   console.log("Deploying IntentLZBridge on Arbitrum Sepolia...");
-  const IntentLZBridge = await ethers.getContractFactory("IntentLZBridge");
+  const IntentLZBridge = await ethers.getContractFactory("IntentLZBridge", deployer);
   const lzBridge = await IntentLZBridge.deploy(LZ_ENDPOINT_ARBITRUM_SEPOLIA, deployer.address);
   await lzBridge.waitForDeployment();
   const lzBridgeAddress = await lzBridge.getAddress();
@@ -288,7 +289,22 @@ async function configureTrustedRemotes(sepoliaBridgeAddress: string, arbitrumBri
   const arbProvider = new ethers.JsonRpcProvider(process.env.ARBITRUM_SEPOLIA_RPC_URL);
   const arbDeployer = new ethers.Wallet(process.env.DEPLOYER_PRIVATE_KEY!, arbProvider);
   const arbitrumBridge = await ethers.getContractAt("IntentLZBridge", arbitrumBridgeAddress, arbDeployer);
-  const currentArbPeer = await arbitrumBridge.peers(LZ_EID_SEPOLIA);
+
+  // Retry reading peers to tolerate RPC propagation lag after fresh deploy
+  let currentArbPeer: string | undefined;
+  for (let i = 0; i < 5; i++) {
+    try {
+      currentArbPeer = await arbitrumBridge.peers(LZ_EID_SEPOLIA);
+      break;
+    } catch (e) {
+      console.log(`Retry ${i + 1}/5 reading Arbitrum bridge peers...`);
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+  if (currentArbPeer === undefined) {
+    throw new Error("Could not read Arbitrum bridge peers after retries. Try a different ARBITRUM_SEPOLIA_RPC_URL.");
+  }
+
   const sepoliaPeerBytes32 = ethers.zeroPadValue(sepoliaBridgeAddress, 32);
   if (currentArbPeer.toLowerCase() !== sepoliaPeerBytes32.toLowerCase()) {
     const tx = await arbitrumBridge.setPeer(LZ_EID_SEPOLIA, sepoliaPeerBytes32);
@@ -315,12 +331,41 @@ async function main() {
 
   const sepoliaDeployment = await deploySepoliaStack(existing);
 
+  // Save Sepolia state early so reruns don't redeploy if Arbitrum config fails
+  saveDeployment({
+    ...existing,
+    ...sepoliaDeployment,
+    lz: {
+      sepoliaEid: LZ_EID_SEPOLIA,
+      arbitrumSepoliaEid: LZ_EID_ARBITRUM_SEPOLIA,
+    },
+    arbitrumSepolia: existing.arbitrumSepolia,
+    timestamp: new Date().toISOString(),
+  } as DeploymentRecord);
+
   let arbDeployment = existing.arbitrumSepolia;
   if (!arbDeployment?.contracts?.IntentLZBridge) {
     arbDeployment = await deployArbitrumSepoliaStack(sepoliaDeployment.contracts.IntentLZBridge);
   } else {
     console.log("\nReusing Arbitrum Sepolia deployment from existing record");
   }
+
+  // Save Arbitrum state before trusting remotes so we don't lose it
+  saveDeployment({
+    ...existing,
+    ...sepoliaDeployment,
+    lz: {
+      sepoliaEid: LZ_EID_SEPOLIA,
+      arbitrumSepoliaEid: LZ_EID_ARBITRUM_SEPOLIA,
+    },
+    arbitrumSepolia: {
+      chainId: arbDeployment.chainId,
+      deployer: arbDeployment.deployer,
+      contracts: arbDeployment.contracts,
+      tokens: arbDeployment.tokens,
+    },
+    timestamp: new Date().toISOString(),
+  } as DeploymentRecord);
 
   await configureTrustedRemotes(
     sepoliaDeployment.contracts.IntentLZBridge,
