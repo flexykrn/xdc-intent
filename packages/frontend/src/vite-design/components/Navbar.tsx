@@ -15,6 +15,7 @@ const appLinks = [
   { label: "Create", href: "/create" },
   { label: "Market", href: "/market" },
   { label: "My Intents", href: "/my-intents" },
+  { label: "Bridge", href: "/bridge" },
   { label: "Agent", href: "/agent-demo" },
 ];
 

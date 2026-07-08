@@ -3,7 +3,7 @@
 import { useWallet } from "@/components/providers";
 import PageContainer from "@/components/PageContainer";
 import { SectionHeader, Badge, TokenSymbol, EmptyState, LoadingState } from "@/components/ui";
-import { tokenSymbol, chainName, formatTokenAmount } from "@/lib/tokens";
+import { tokenSymbol, chainName, formatTokenAmount, explorerUrl } from "@/lib/tokens";
 import { CONTRACTS } from "@/lib/contracts";
 import { useIntents, useBridgeStatus } from "@/lib/hooks";
 import Link from "next/link";
@@ -244,14 +244,14 @@ function DetailPanel({ intent }: { intent: IntentData }) {
             <DetailRow
               label="Solver"
               value={
-                <a
-                  href={`https://testnet.xdcscan.com/address/${intent.solver}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-mono text-[11px] text-[var(--accent)] hover:underline"
-                >
-                  {intent.solver.slice(0, 14)}...
-                </a>
+            <a
+              href={explorerUrl(intent.sourceChainId, "address", intent.solver)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono text-[11px] text-[var(--accent)] hover:underline"
+            >
+              {intent.solver.slice(0, 14)}...
+            </a>
               }
             />
           </>
@@ -314,7 +314,7 @@ function DetailPanel({ intent }: { intent: IntentData }) {
             <div className="flex flex-wrap items-center gap-3">
               {bridgeStatus.bridgeOutTxHash && (
                 <a
-                  href={`https://testnet.xdcscan.com/tx/${bridgeStatus.bridgeOutTxHash}`}
+                  href={explorerUrl(intent.sourceChainId, "tx", bridgeStatus.bridgeOutTxHash)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
@@ -324,7 +324,7 @@ function DetailPanel({ intent }: { intent: IntentData }) {
               )}
               {bridgeStatus.bridgeInTxHash && (
                 <a
-                  href={`https://testnet.xdcscan.com/tx/${bridgeStatus.bridgeInTxHash}`}
+                  href={explorerUrl(intent.destChainId, "tx", bridgeStatus.bridgeInTxHash)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"

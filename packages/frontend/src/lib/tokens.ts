@@ -17,6 +17,8 @@ export const CHAINS: ChainInfo[] = [
   { chainId: 51, name: "XDC Apothem", shortName: "Apothem", nativeSymbol: "XDC" },
   { chainId: 99999, name: "Mock L2 Alpha", shortName: "MockL2", nativeSymbol: "mXDC" },
   { chainId: 88888, name: "Mock L2 Beta", shortName: "MockL2-Beta", nativeSymbol: "mXDC" },
+  { chainId: 11155111, name: "Sepolia", shortName: "Sepolia", nativeSymbol: "ETH" },
+  { chainId: 421614, name: "Arbitrum Sepolia", shortName: "Arb Sepolia", nativeSymbol: "ETH" },
 ];
 
 export const TOKENS: TokenInfo[] = [
@@ -73,5 +75,19 @@ export function parseTokenAmount(amount: string, address: string): bigint {
     return BigInt(whole) * BigInt(10 ** decimals) + BigInt(padded);
   } catch {
     return BigInt(0);
+  }
+}
+
+export function explorerUrl(chainId: number, type: "tx" | "address", value: string): string {
+  switch (chainId) {
+    case 11155111:
+      return `https://sepolia.etherscan.io/${type}/${value}`;
+    case 421614:
+      return `https://sepolia.arbiscan.io/${type}/${value}`;
+    case 51:
+    case 99999:
+    case 88888:
+    default:
+      return `https://testnet.xdcscan.com/${type}/${value}`;
   }
 }

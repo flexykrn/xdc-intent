@@ -19,6 +19,9 @@ export default function Footer() {
             <Link href="/my-intents" className="text-[13px] text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors">
               My Intents
             </Link>
+            <Link href="/bridge" className="text-[13px] text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors">
+              Bridge
+            </Link>
             <a href="https://testnet.xdcscan.com" target="_blank" rel="noopener noreferrer" className="text-[13px] text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors">
               Explorer
             </a>
